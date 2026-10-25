@@ -156,7 +156,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.3</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.4</span></p>
 </div>
 
 <script>
@@ -206,8 +206,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     houses.push({ x: 15, y: 11, w: 10, h: 4, tone: hoa ? C.hoa : C.roofs[ti % 4], face: 'down', hoa });
     [[10, 8], [29, 8], [10, 17], [29, 17], [20, 8], [20, 17], [10, 12], [30, 12]].forEach(([x, y]) => trees.push({ x, y }));
     [[6, 5], [15, 5], [25, 5], [34, 5], [6, 20], [15, 20], [25, 20], [34, 20]].forEach(([x, y]) => boxes.push({ x, y }));
-    [[4, 5], [37, 5], [4, 20], [37, 20],
-     [14, 11], [14, 14], [25, 11], [25, 14], [8, 10], [8, 15], [32, 10], [32, 15]].forEach(([x, y]) => bushes.push({ x, y }));
+    [[4, 5], [37, 5], [4, 20], [37, 20]].forEach(([x, y]) => bushes.push({ x, y }));
     return { houses, trees, boxes, bushes };
   }
   // the subdivision: that block, 8 by 6, with only the outer fence; one block has the HOA clubhouse
