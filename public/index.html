@@ -118,10 +118,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .meta { grid-column: 2; grid-row: 3; font: 500 12px var(--font-mono); color: var(--muted); }
 .meta .cup { width: 11px; height: 16px; vertical-align: -3px; margin-right: 2px; }
 .val { grid-column: 2; grid-row: 1; font: 700 1.1rem / 1.1 var(--font-body); font-size: max(14px, min(1.9rem, calc((100cqw - 46px) / 6.8))); font-variant-numeric: tabular-nums; color: var(--c); white-space: nowrap; }
-@media (max-width: 600px) {
-  .chip { grid-column: 1 / -1; }
-  .chip:first-child .val { font-size: min(3rem, calc((100cqw - 46px) / 6.2)); }
-}
 .chip.out { opacity: 0.5; }
 .chip.out .nm { text-decoration: line-through; }
 .chip.win { border-color: var(--c); }
@@ -150,7 +146,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
 
-  <p class="foot"><span>Tap the left or right side of the board to turn. Space starts a round.</span><span>v2.10</span></p>
+  <p class="foot"><span>Tap the left or right side of the board to turn. Space starts a round.</span><span>v2.9</span></p>
 </div>
 
 <script>
