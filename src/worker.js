@@ -165,7 +165,8 @@ export class Match extends DurableObject {
       const q = this.queue.get(seat) || [];
       if (q.length < 2) q.push(m.d);
       this.queue.set(seat, q);
-    } else if (m.t === 'hash' && Number.isInteger(m.n)) {
+    } else if (m.t === 'done' && seat !== undefined) this.end(); // a rider's screen saw the last granny crash: the round is over
+    else if (m.t === 'hash' && Number.isInteger(m.n)) {
       const seen = this.hashes.get(m.n);
       if (seen === undefined) this.hashes.set(m.n, m.h);
       else if (seen !== m.h) console.warn(`HOA Wars: screens drifted apart at step ${m.n}`);

@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.28</span></p>
+  <p class="foot"><span></span><span>v2.29</span></p>
 </div>
 
 <script>
@@ -539,6 +539,19 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     renderChips();
     clearTimeout(overlayTimer);
     overlayTimer = setTimeout(() => showOverlay(title, text, 'Manager!!!', true), 800);
+    if (othersAlive === 0) endRound();
+  }
+  // nobody is left riding: the server is told the round is over, and a new round starts by itself after a few seconds
+  // (the same as tapping the button; the window with the final list stays up until then)
+  function endRound() {
+    if (ending) return;
+    ending = true;
+    if (online && net) net.send(JSON.stringify({ t: 'done' }));
+    autoReload();
+  }
+  function autoReload() {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => { if (state === 'over') startRound(); }, 5000);
   }
 
   // ---------- overlay + chips ----------
@@ -559,10 +572,10 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
   // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
   // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
-  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, boardAt = 0;
+  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, boardAt = 0, ending = false, reloadTimer = 0;
   function begin(seed, humans, you) {
     clearTimeout(overlayTimer);
-    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play'; liveOver = false;
+    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play'; liveOver = false; ending = false;
     overlay.hidden = true;
     renderChips();
   }
@@ -582,6 +595,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     });
     turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
     stepN = n; step(); acc = 0;
+    if (!replaying && state === 'over' && liveOver && !riders.some(r => r.alive)) endRound();
     // the granny picked could crash before the takeover arrives: pick another
     if (!replaying && me < 0 && claim >= 0 && !riders[claim].alive) pickGranny();
   }
@@ -605,6 +619,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function startRound() {
     clearTimeout(overlayTimer);
     if (net) { net.onclose = null; net.close(); net = null; }
+    clearTimeout(reloadTimer); ending = false;
     online = false; claim = -1; liveOver = false;
     let opened = false;
     try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' + (playerId() ? '?p=' + playerId() : '')); } catch (e) { net = null; }
@@ -617,6 +632,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       if (!opened) return;
       net = null;
       if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to complain...', ovIntro, 'Manager!!!'); }
+      else autoReload(); // the round ended while the window was up (the last rider crashed, or the time ran out)
     };
     net.onmessage = e => {
       const m = JSON.parse(e.data);
@@ -1099,8 +1115,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
   }
 
-  // the leaderboard: real riders first, then grannies; each group by property value, highest first
-  const standings = () => riders.slice().sort((a, b) => (b.human - a.human) || (riderValue(b) - riderValue(a)) || (a.id - b.id));
+  // the leaderboard: everyone by property value, highest first (the same value: lower seat first)
+  const standings = () => riders.slice().sort((a, b) => (riderValue(b) - riderValue(a)) || (a.id - b.id));
   const money = r => '$' + riderValue(r).toLocaleString('en-US');
   // the round-over window: all 100 riders, your row highlighted, riders who have crashed dimmed
   function fillBoard(keepScroll) {
