@@ -148,7 +148,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
         <h2 id="ovTitle">Ready to ride</h2>
-        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. An iced coffee lets you survive one hit. Don't touch a trail, a house or the fence.</p>
+        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. An iced coffee lets you survive one hit, and you can carry two. Don't touch a trail, a house or the fence.</p>
         <button class="go" id="go" type="button">Start</button>
       </div>
     </div>
@@ -163,7 +163,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.11</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.12</span></p>
 </div>
 
 <script>
@@ -194,7 +194,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const solid = new Uint8Array(W * H);
   const kind = new Array(W * H).fill('');
   const trail = new Int16Array(W * H).fill(-1);
-  // iced coffee: COFFEES cups on open cells; holding one saves a rider from one hit (not a head-on)
+  // iced coffee: COFFEES cups on open cells; a rider can hold 2, and each one saves them from one hit (not a head-on)
   const COFFEES = 120;
   const coffee = new Uint8Array(W * H);
   const stepAt = new Int32Array(W * H);
@@ -394,7 +394,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     paintMini();
     riders.forEach(r => {
       r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
-      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6; r.coffee = false;
+      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6; r.coffee = 0;
       r.path = [{ x: r.x, y: r.y }];
       trail[r.y * W + r.x] = r.id; stepAt[r.y * W + r.x] = 0;
       miniDot(r);
@@ -447,7 +447,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       // the coffee takes the hit: stay put this step and turn to the side with more room
       const l = (r.dir + 3) % 4, rt = (r.dir + 1) % 4;
       const fl = freeRun(r.x, r.y, l, 12), fr = freeRun(r.x, r.y, rt, 12);
-      if (r.coffee && (fl > 0 || fr > 0)) { r.coffee = false; r.dir = fl >= fr ? l : rt; r.turnQ.length = 0; saved.add(i); }
+      if (r.coffee > 0 && (fl > 0 || fr > 0)) { r.coffee--; r.dir = fl >= fr ? l : rt; r.turnQ.length = 0; saved.add(i); }
       else dead.add(i);
     });
     const at = new Map();
@@ -467,7 +467,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       } else {
         r.x = t.x; r.y = t.y; const c = r.y * W + r.x;
         trail[c] = r.id; stepAt[c] = r.path.length; r.path.push({ x: r.x, y: r.y });
-        if (coffee[c] && !r.coffee) { coffee[c] = 0; r.coffee = true; }
+        if (coffee[c] && r.coffee < 2) { coffee[c] = 0; r.coffee++; } // holding 2: drive over it and it stays
         miniDot(r);
       }
     });
@@ -544,7 +544,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     else if (!karen.alive) status = 'crashed';
     else if (state === 'over') status = 'winner';
     else status = 'riding';
-    karen.meta.textContent = `${status} · ${karen.wins} ${karen.wins === 1 ? 'win' : 'wins'}${karen.coffee && karen.alive ? ' · ☕ iced coffee' : ''}`;
+    karen.meta.textContent = `${status} · ${karen.wins} ${karen.wins === 1 ? 'win' : 'wins'}${karen.coffee && karen.alive ? ' · ' + '☕'.repeat(karen.coffee) : ''}`;
     karen.li.classList.toggle('out', !karen.alive && state !== 'ready');
     karen.li.classList.toggle('win', karen.alive && state === 'over');
     const left = riders.filter(r => !r.human && r.alive).length;
@@ -846,8 +846,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     segs.forEach(list => { path(list); ctx.stroke(); });
     ctx.restore();
   }
-  function drawCup(cx, cy) {
+  function drawCup(cx, cy, size = 1, outline = false) {
     ctx.save();
+    ctx.translate(cx, cy); ctx.scale(size, size); cx = 0; cy = 0;
+    if (outline) {
+      // a thin dark outline so the cup reads on top of a car
+      ctx.strokeStyle = C.bg; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(-6, -5); ctx.lineTo(6, -5); ctx.lineTo(4, 9); ctx.lineTo(-4, 9); ctx.closePath(); ctx.stroke();
+      ctx.strokeRect(-7, -7, 14, 3); ctx.strokeRect(1, -13, 2, 7);
+    }
     ctx.shadowColor = C.window; ctx.shadowBlur = 8;
     ctx.fillStyle = 'rgba(236, 233, 251, 0.35)';
     ctx.beginPath(); ctx.moveTo(cx - 6, cy - 5); ctx.lineTo(cx + 6, cy - 5); ctx.lineTo(cx + 4, cy + 9); ctx.lineTo(cx - 4, cy + 9); ctx.closePath(); ctx.fill();
@@ -901,7 +908,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         ctx.restore();
       }
       drawSuv(r, (p.x + 0.5) * CELL, (p.y + 0.5) * CELL);
-      if (r.alive && r.coffee) drawCup((p.x + 0.5) * CELL, (p.y + 0.5) * CELL);
+      if (r.alive) for (let i = 0; i < r.coffee; i++) drawCup((p.x + 0.5) * CELL + (r.coffee === 2 ? (i ? 7 : -7) : 0), (p.y + 0.5) * CELL, 0.75, true);
     });
     ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
