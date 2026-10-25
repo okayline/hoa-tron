@@ -164,7 +164,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.1</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.2</span></p>
 </div>
 
 <script>
@@ -1006,10 +1006,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
     // Karen's property value, big white text in the top left
     ctx.save();
-    ctx.font = '700 44px "Figtree", system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.lineWidth = 6; ctx.lineJoin = 'round'; ctx.strokeStyle = C.bg; ctx.fillStyle = '#ffffff';
-    const worth = '$' + (Math.floor(karen.aliveMs / 50) * 10000).toLocaleString('en-US');
-    ctx.strokeText(worth, 18, 14); ctx.fillText(worth, 18, 14);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = '#ffffff';
+    ctx.font = '600 18px "Figtree", system-ui, sans-serif';
+    ctx.fillText("Karen's Property Value", 20, 14);
+    ctx.font = '700 44px "Figtree", system-ui, sans-serif';
+    ctx.fillText('$' + (Math.floor(karen.aliveMs / 50) * 10000).toLocaleString('en-US'), 18, 36);
     ctx.restore();
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
     const MS = 0.3, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
