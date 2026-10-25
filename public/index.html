@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.43</span></p>
+  <p class="foot"><span></span><span>v2.44</span></p>
 </div>
 
 <script>
@@ -182,7 +182,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const TW = 40, TH = 26, TX = 13, TY = 20, W = TW * TX, H = TH * TY, CELL = 24, TICK = 95, N = 100;
   // a small seeded random, so the same seed and the same turns give the same round on every screen
   const mulberry32 = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  let rand = mulberry32(1);
+  // the game's own random numbers keep their state in rngA, so a guessed step can be undone (see predict below)
+  let rngA = 1;
+  const rand = () => { rngA = (rngA + 0x6D2B79F5) | 0; let t = Math.imul(rngA ^ (rngA >>> 15), 1 | rngA); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const DIRS = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }]; // 0 up, 1 right, 2 down, 3 left
   const cs = getComputedStyle(document.documentElement);
   const tok = n => cs.getPropertyValue(n).trim();
@@ -407,7 +409,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   function reset(seed, humans) {
     newsAt = -1e9;
-    rand = mulberry32(seed >>> 0); roundSteps = 0;
+    rngA = seed | 0; roundSteps = 0; pred = 0; snap = null; since.length = 0;
     karen = riders[Math.max(me, 0)];
     riders.forEach(r => { r.human = humans.includes(r.id); });
     nameRiders();
@@ -652,7 +654,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         else pickGranny();
       } else if (m.t === 'step' || m.t === 'won' || m.t === 'lost') { inbox.push(m); if (m.t === 'step') dbgNet(); } // played out on a steady clock in frame()
       else if (m.t === 'end') inbox.length = 0;
-      else if (m.t === 'late') { net.onclose = null; net = null; setTimeout(startRound, 300); }
+      else if (m.t === 'late') { if (net) net.onclose = null; net = null; setTimeout(startRound, 300); }
     };
   }
   go.addEventListener('click', startRound);
@@ -1225,6 +1227,53 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // Steps from the server arrive unevenly (the network bunches them up). Playing each one the moment it lands made the
   // riders stop and jump. Instead they wait in a small queue and come out one every TICK ms, smoothly; the queue is kept
   // about one step deep, played a bit faster when it grows and a bit slower when it runs dry.
+  // When the server's next step is late (lost packets on a long trip can hold it up 300-700 ms), the game no longer
+  // waits: it guesses the step (nobody turns, the grannies drive as always) and keeps going. Most steps really have no
+  // turns, so the guess is usually right. When a real step with a turn arrives, the game goes back to the last real step,
+  // plays the real ones, and guesses forward again to where it was.
+  const MAXPRED = 8;
+  let pred = 0, snap = null;
+  const since = []; // real steps that arrived while guessing
+  const RF = ['x', 'y', 'px', 'py', 'dir', 'alive', 'coffee', 'steps', 'moves', 'human', 'base', 'boom', 'note'];
+  const trailS = new Int16Array(W * H), stepAtS = new Int32Array(W * H), coffeeS = new Uint8Array(W * H);
+  function takeSnap() {
+    trailS.set(trail); stepAtS.set(stepAt); coffeeS.set(coffee);
+    return { rngA, roundSteps, stepN, rs: riders.map(r => { const o = { turnQ: r.turnQ.slice() }; RF.forEach(k => o[k] = r[k]); return o; }) };
+  }
+  function restoreSnap(sn) {
+    trail.set(trailS); stepAt.set(stepAtS); coffee.set(coffeeS);
+    rngA = sn.rngA; roundSteps = sn.roundSteps; stepN = sn.stepN;
+    sn.rs.forEach((o, i) => { const r = riders[i]; RF.forEach(k => r[k] = o[k]); r.turnQ = o.turnQ.slice(); });
+  }
+  function guessStep() {
+    if (!pred) { snap = takeSnap(); since.length = 0; }
+    pred++;
+    const was = replaying; replaying = true; step(); replaying = was;
+  }
+  // a real step arrives while guessing: if it has no turns or takeovers it is exactly the guess
+  function realStep(m) {
+    const same = !m.turns.length && !m.joins.length;
+    since.push(m);
+    if (same) { pred--; stepN = m.n; if (!pred) { snap = null; since.length = 0; afterStep(); } return; }
+    const ahead = pred - 1;
+    since.forEach(st => st.turns.forEach(([seat]) => { if (seat === me) pending--; }));
+    restoreSnap(snap);
+    const was = replaying; replaying = true;
+    since.forEach(s => applyStep(s.n, s.turns, s.joins));
+    replaying = was;
+    pred = 0; snap = null; since.length = 0;
+    for (let k = 0; k < ahead; k++) guessStep();
+    afterStep();
+  }
+  function afterStep() {
+    if (pred) return;
+    renderChips();
+    if (me >= 0 && pending <= 0) { pending = 0; lastAsk = karen.dir; }
+    const othersAlive = riders.filter(r => r !== karen && r.alive).length;
+    if (me >= 0 && state === 'play' && (!karen.alive || othersAlive === 0)) finish();
+    if (state === 'over' && liveOver && !riders.some(r => r.alive)) endRound();
+    if (me < 0 && claim >= 0 && !riders[claim].alive) pickGranny();
+  }
   const inbox = [];
   let buffering = true;
   function stepsQueued() { let c = 0; for (const m of inbox) if (m.t === 'step') c++; return c; }
@@ -1232,7 +1281,10 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     while (inbox.length) {
       const m = inbox.shift();
       if (m.t === 'step') {
-        if (online && (state === 'play' || (state === 'over' && liveOver))) applyStep(m.n, m.turns, m.joins);
+        if (online && (state === 'play' || (state === 'over' && liveOver))) {
+          if (pred) { realStep(m); return 'real'; }
+          applyStep(m.n, m.turns, m.joins);
+        }
         return true;
       }
       // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
@@ -1251,12 +1303,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     while (stepsQueued() > 8) { playOne(); clock = 0; }
     const rate = q > 3 ? 1.25 : q > 1 ? 1.05 : 1;
     clock += dt * rate;
+    // real steps that only confirm guesses already shown: take them all now, they don't move the game forward
+    while (pred && stepsQueued()) playOne();
     if (clock >= TICK) {
-      if (playOne()) { clock -= TICK; if (clock > TICK) clock = TICK; }
-      else { buffering = true; clock = 0; if (DBG) DBG.dry++; }
+      if (!pred && playOne()) { clock -= TICK; if (clock > TICK) clock = TICK; }
+      else if ((state === 'play' || (state === 'over' && liveOver)) && pred < MAXPRED) { guessStep(); clock -= TICK; if (clock > TICK) clock = TICK; if (DBG) DBG.dry++; }
+      else { clock = TICK; }
     }
     if (state === 'over' && !liveOver) { inbox.length = 0; buffering = true; }
-    acc = buffering ? TICK : Math.min(clock, TICK);
+    acc = Math.min(clock, TICK);
   }
   // ?debug in the address: a small meter in the corner, to tell network hiccups from drawing hiccups
   const DBG = /[?&]debug/.test(location.search) ? { el: null, t0: performance.now(), frames: 0, slow: 0, worstGap: 0, work: 0, msgs: 0, netGap: 0, lastMsg: 0, dry: 0 } : null;
