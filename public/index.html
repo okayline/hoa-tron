@@ -89,7 +89,16 @@ h1 {
   touch-action: none;
 }
 canvas { display: block; width: 100%; height: 100%; }
+/* a phone held upright: a tall game screen that shows fewer cells, so everything is bigger (the view size is set in fitView) */
+@media (max-width: 720px) and (orientation: portrait) {
+  .stage { aspect-ratio: 20 / 36; }
+  /* the rider boxes sit on the bottom of the game screen, see-through */
+  .play { position: relative; }
+  .wrap .chips { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wrap .chip { background: color-mix(in srgb, var(--panel) 22%, transparent); border-color: rgba(255, 255, 255, 0.14); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); }
+}
 .overlay {
+  z-index: 2;
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
@@ -107,6 +116,21 @@ canvas { display: block; width: 100%; height: 100%; }
   box-shadow: 0 0 16px var(--karen-glow);
 }
 button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+/* the leaderboard window after a round: a light veil, so the board stays visible underneath */
+.overlay.win { background: rgba(11, 10, 26, 0.25); }
+.overlay.win .card {
+  width: min(400px, 100%); max-height: 100%; min-height: 0; gap: 8px; padding: 12px 14px;
+  background: color-mix(in srgb, var(--panel) 62%, transparent); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55);
+}
+.overlay.win .card p { display: none; }
+.lb { list-style: none; margin: 0; padding: 0; width: 100%; flex: 1 1 auto; min-height: 0; overflow-y: auto; font: 600 14px var(--font-body); text-align: left; }
+.lb[hidden] { display: none; }
+.lb li { display: grid; grid-template-columns: 2.4em 1fr auto; gap: 8px; align-items: center; padding: 3px 8px; white-space: nowrap; border-radius: 4px; }
+.lb .lbr { color: var(--muted); font: 500 12px var(--font-mono); }
+.lb .lbn { overflow: hidden; text-overflow: ellipsis; }
+.lb li.me { color: #fff; background: rgba(255, 61, 166, 0.22); box-shadow: inset 0 0 0 1px var(--karen); }
+.lb li.out { color: var(--muted); }
 
 .chips { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .chip {
@@ -133,26 +157,29 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <h1>HOA Wars</h1>
   </header>
 
+  <div class="play">
   <div class="stage" id="stage">
     <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with a hundred SUVs leaving glowing trails"></canvas>
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
-        <h2 id="ovTitle">Ready to ride</h2>
+        <h2 id="ovTitle">Ready to complain...</h2>
         <p id="ovText"></p>
-        <button class="go" id="go" type="button">Start</button>
+        <ol class="lb" id="ovBoard" aria-label="Leaderboard" hidden></ol>
+        <button class="go" id="go" type="button">Manager!!!</button>
       </div>
     </div>
   </div>
 
   <ul class="chips" id="chips" aria-label="Riders"></ul>
+  </div>
 
-
-  <p class="foot"><span></span><span>v2.40</span></p>
+  <p class="foot"><span></span><span>v2.36</span></p>
 </div>
 
 <script>
 (() => {
-  const VW = 40, VH = 26, TW = 40, TH = 26, TX = 13, TY = 20, W = TW * TX, H = TH * TY, CELL = 24, TICK = 95, N = 100;
+  let VW = 40, VH = 26; // how many cells the screen shows: wide on a computer, tall and closer in on a phone held upright
+  const TW = 40, TH = 26, TX = 13, TY = 20, W = TW * TX, H = TH * TY, CELL = 24, TICK = 95, N = 100;
   // a small seeded random, so the same seed and the same turns give the same round on every screen
   const mulberry32 = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   let rand = mulberry32(1);
@@ -172,7 +199,13 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   const canvas = document.getElementById('board');
   const ctx = canvas.getContext('2d');
-  canvas.width = VW * CELL; canvas.height = VH * CELL;
+  const upright = matchMedia('(max-width: 720px) and (orientation: portrait)');
+  function fitView() { VW = upright.matches ? 20 : 40; VH = upright.matches ? 36 : 26; canvas.width = VW * CELL; canvas.height = VH * CELL; }
+  fitView(); upright.addEventListener('change', fitView);
+  // upright phone: the rider boxes cover the bottom of the game screen, so the minimap sits above them (in canvas units)
+  let chipPad = 0;
+  function fitChips() { const c = document.getElementById('chips'); chipPad = upright.matches && canvas.clientWidth ? (c.offsetHeight + 10) * canvas.width / canvas.clientWidth : 0; }
+  new ResizeObserver(fitChips).observe(document.getElementById('chips')); new ResizeObserver(fitChips).observe(canvas); upright.addEventListener('change', fitChips);
 
   // ---------- map ----------
   const solid = new Uint8Array(W * H);
@@ -319,7 +352,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     riders.push({ name, color, baseName: name, baseColor: color, hair: HAIR[i % 4] });
   }
   riders.forEach((r, i) => Object.assign(r, {
-    id: i, wins: 0, aliveMs: 0, shownVal: '', alive: true, moves: 0, turnQ: [],
+    id: i, wins: 0, steps: 0, base: 0, shownVal: '', alive: true, moves: 0, turnQ: [],
     sx: 1, sy: 1, sdir: 0, x: 1, y: 1, px: 1, py: 1, dir: 0, boom: null, note: '', seed: 0
   }));
   // you are always Karen (pink); other real players are Karen 2, Karen 3... in their own colours
@@ -373,6 +406,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
 
   function reset(seed, humans) {
+    newsAt = -1e9;
     rand = mulberry32(seed >>> 0); roundSteps = 0;
     karen = riders[Math.max(me, 0)];
     riders.forEach(r => { r.human = humans.includes(r.id); });
@@ -382,7 +416,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     paintMini();
     riders.forEach(r => {
       r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
-      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6; r.coffee = 0;
+      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.steps = 0; r.base = 0; r.seed = rand() * 6; r.coffee = 0;
       r.moves = 0;
       trail[r.y * W + r.x] = r.id; stepAt[r.y * W + r.x] = 0;
       miniDot(r);
@@ -423,11 +457,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       r.px = r.x; r.py = r.y;
     }
     moveOnce(riders.filter(r => r.alive));
+    riders.forEach(r => { if (r.alive) r.steps++; }); // the game's own clock: every screen counts the same steps, replays included
     if (replaying) return;
     renderChips();
     if (me < 0) return;
     const othersAlive = riders.filter(r => r !== karen && r.alive).length;
-    if (!karen.alive || othersAlive === 0) finish();
+    if (state === 'play' && (!karen.alive || othersAlive === 0)) finish();
     if (online && net && stepN % 50 === 0) net.send(JSON.stringify({ t: 'hash', n: stepN, h: boardHash() }));
   }
   // a short fingerprint of the board, so the server can tell if two screens drifted apart
@@ -478,8 +513,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const pick = a => a[Math.floor(Math.random() * a.length)];
   function finish() {
     state = 'over';
-    heldMs = karen.aliveMs; // the value Karen ended on, kept on screen until she takes over a new granny
-    if (online && net) net.send(JSON.stringify({ t: 'over' }));
+    heldVal = riderValue(karen); // the value Karen ended on, kept on screen until she takes over a new granny
+    // you stay connected after a crash, so the window keeps showing the round as it goes on (not after a win: the winner stops where she is)
+    liveOver = online && !!net && !karen.alive;
     const othersAlive = riders.filter(r => r !== karen && r.alive).length;
     let title, text;
     if (karen.alive) {
@@ -503,7 +539,21 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     }
     renderChips();
     clearTimeout(overlayTimer);
-    overlayTimer = setTimeout(() => showOverlay(title, text, 'Ride again'), 800);
+    overlayTimer = setTimeout(() => showOverlay(title, text, 'Manager!!!', true), 800);
+    if (othersAlive === 0) endRound();
+  }
+  // nobody is left riding: the server is told the round is over, and a new round starts at once, by itself
+  // (the same as tapping the button)
+  function endRound() {
+    if (ending) return;
+    ending = true;
+    if (online && net) net.send(JSON.stringify({ t: 'done' }));
+    autoReload();
+  }
+  function autoReload() {
+    clearTimeout(reloadTimer);
+    // after 3 new rounds in a row that started by themselves with no key press or tap from you, it waits for the button (a tab left open does not keep a round running on the server all day)
+    reloadTimer = setTimeout(() => { if (state === 'over' && idleRounds < 3) { idleRounds++; startRound(); } }, 0);
   }
 
   // ---------- overlay + chips ----------
@@ -512,23 +562,28 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const ovText = document.getElementById('ovText');
   const go = document.getElementById('go');
   const ovIntro = ovText.textContent;
-  function showOverlay(t, p, label) {
+  const ovBoard = document.getElementById('ovBoard');
+  // board = true: the round-over window with the leaderboard (all 100), the board still visible underneath
+  function showOverlay(t, p, label, board) {
     ovTitle.textContent = t; ovText.textContent = p; go.textContent = label;
+    overlay.classList.toggle('win', !!board); ovBoard.hidden = !board;
+    if (board) fillBoard();
     overlay.hidden = false; overlayShownAt = performance.now();
     go.focus({ preventScroll: true });
   }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
   // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
   // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
-  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldMs = 0;
+  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, ending = false, reloadTimer = 0, idleRounds = 0;
   function begin(seed, humans, you) {
     clearTimeout(overlayTimer);
-    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play';
+    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play'; liveOver = false; ending = false;
     overlay.hidden = true;
     renderChips();
   }
   // names: you are Karen (pink), other players Karen 2, Karen 3... in seat order, everyone else is a granny
   function nameRiders() {
+    newsAt = -1e9;
     let k = 1;
     riders.forEach(r => {
       r.name = r.id === me ? 'Karen' : r.human ? `Karen ${++k}` : r.baseName;
@@ -538,10 +593,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function applyStep(n, turns, joins) {
     joins.forEach(seat => {
       riders[seat].human = true; riders[seat].turnQ = [];
+      riders[seat].base = riders[seat].steps; // a rider's value counts from the step they took the granny over
       nameRiders();
     });
     turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
     stepN = n; step(); acc = 0;
+    if (!replaying && state === 'over' && liveOver && !riders.some(r => r.alive)) endRound();
     // the granny picked could crash before the takeover arrives: pick another
     if (!replaying && me < 0 && claim >= 0 && !riders[claim].alive) pickGranny();
   }
@@ -552,12 +609,23 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     claim = best;
     net.send(JSON.stringify(best >= 0 ? { t: 'claim', seat: best } : { t: 'none' }));
   }
+  // the player's id lives in a cookie on their device: it is how the server knows them when they come back
+  function playerId() {
+    try {
+      const got = document.cookie.match(/(?:^|; )hoa_id=([\w-]+)/);
+      if (got) return got[1];
+      const id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/[^\w-]/g, '');
+      document.cookie = `hoa_id=${id}; max-age=31536000; path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
+      return id;
+    } catch (e) { return ''; }
+  }
   function startRound() {
     clearTimeout(overlayTimer);
     if (net) { net.onclose = null; net.close(); net = null; }
-    online = false; claim = -1;
+    clearTimeout(reloadTimer); ending = false;
+    online = false; claim = -1; liveOver = false;
     let opened = false;
-    try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); } catch (e) { net = null; }
+    try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' + (playerId() ? '?p=' + playerId() : '')); } catch (e) { net = null; }
     // no server here: a round on this screen only, against 99 grannies
     const solo = () => { net = null; begin((Math.random() * 4294967296) >>> 0, [0], 0); };
     if (!net) return solo();
@@ -566,32 +634,29 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     net.onclose = () => {
       if (!opened) return;
       net = null;
-      if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to ride', ovIntro, 'Start'); }
+      if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to complain...', ovIntro, 'Manager!!!'); }
+      else autoReload(); // the round ended while the window was up (the last rider crashed, or the time ran out)
     };
     net.onmessage = e => {
       const m = JSON.parse(e.data);
       if (m.t === 'start') {
-        online = true; me = -1; reset(m.seed, []); state = 'play'; acc = 0;
-        karen.aliveMs = heldMs; // with no granny of your own yet, the value stays at what it was and does not go up
-        replaying = true;
+        online = true; me = -1; reset(m.seed, []); state = 'play'; acc = 0; inbox.length = 0;        replaying = true;
         const at = new Map(m.history.map(h => [h[0], h]));
         for (let n = 1; n <= m.n; n++) { const h = at.get(n); applyStep(n, h ? h[1] : [], h ? h[2] : []); }
         replaying = false;
         renderChips();
-        pickGranny();
-      } else if (m.t === 'step' && online && state === 'play') applyStep(m.n, m.turns, m.joins);
-      // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
-      else if (m.t === 'won' && online && state === 'play') {
-        me = m.seat; karen = riders[me]; karen.aliveMs = 0; lastAsk = karen.dir; claim = -1;
-        nameRiders(); overlay.hidden = true; renderChips();
-      } else if (m.t === 'lost' && online && state === 'play') { claim = -1; pickGranny(); }
+        // a player who has been here before asks for their own granny back first (the server only gives her to them); if she has crashed, any other granny
+        if (m.mine !== null && m.mine !== undefined && riders[m.mine] && riders[m.mine].alive) { claim = m.mine; net.send(JSON.stringify({ t: 'claim', seat: m.mine })); }
+        else pickGranny();
+      } else if (m.t === 'step' || m.t === 'won' || m.t === 'lost') inbox.push(m); // played out on a steady clock in frame()
+      else if (m.t === 'end') inbox.length = 0;
       else if (m.t === 'late') { net.onclose = null; net = null; setTimeout(startRound, 300); }
     };
   }
   go.addEventListener('click', startRound);
   document.addEventListener('click', e => {
     if (state !== 'over' || overlay.hidden) return;
-    if (go.contains(e.target)) return; // the button already starts the round; counting its tap twice started two rounds at once
+    if (e.target.closest('.card')) return; // the button already starts the round (counting its tap twice started two rounds at once), and taps on the leaderboard should not
     if (performance.now() - overlayShownAt < 500) return;
     startRound();
   });
@@ -650,6 +715,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       e.preventDefault(); startRound();
     }
   });
+  // any key press or tap counts as you being here
+  ['keydown', 'pointerdown'].forEach(ev => addEventListener(ev, () => { idleRounds = 0; }, true));
   // tap or click the left half of the board to turn left, the right half to turn right
   const stage = document.getElementById('stage');
   stage.addEventListener('pointerdown', e => {
@@ -1022,17 +1089,13 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       ctx.restore();
     });
     ctx.restore();
-    // Karen's property value, big white text in the top left
-    ctx.save();
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = '#ffffff';
-    ctx.font = '600 18px "Figtree", system-ui, sans-serif';
-    ctx.fillText("Karen's Property Value", 20, 14);
-    ctx.font = '700 44px "Figtree", system-ui, sans-serif';
-    ctx.fillText(moneyText(Math.floor(karen.aliveMs / 50)), 18, 36);
-    ctx.restore();
+    drawBoard(now); // the leaderboard in the top left
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
     // as wide as the stats row above it
-    const MS = statsRow().total / W, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
+    // on a phone held upright the whole corner (minimap and stats row) is drawn smaller, shrinking towards the bottom right corner
+    const k = upright.matches ? 0.7 : 1, cx = canvas.width - 10, cy = canvas.height - 10 - chipPad;
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(k, k); ctx.translate(-cx, -cy);
+    const MS = statsRow().total / W, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10 - chipPad;
     ctx.save();
     ctx.globalAlpha = 0.85; ctx.imageSmoothingEnabled = false;
     ctx.drawImage(mini, mx, my, mw, mh);
@@ -1042,6 +1105,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.fillStyle = karen.color; ctx.beginPath(); ctx.arc(mx + (kp.x + 0.5) * MS, my + (kp.y + 0.5) * MS, 3, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     drawStats(mx + mw, my - 8);
+    ctx.restore();
   }
   // the stats row above the minimap: round time, riders left, coffees held
   function statsRow() {
@@ -1080,23 +1144,105 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
   }
 
-  // the price text, worked out again only when the number changes
-  let moneyV = -1, moneyT = '';
-  const moneyText = v => { if (v !== moneyV) { moneyV = v; moneyT = '$' + (v * 10000).toLocaleString('en-US'); } return moneyT; };
+  // the leaderboard: everyone by property value, highest first (the same value: lower seat first)
+  const standings = () => riders.slice().sort((a, b) => (riderValue(b) - riderValue(a)) || (a.id - b.id));
+  const money = r => '$' + riderValue(r).toLocaleString('en-US');
+  // the round-over window: all 100 riders, your row highlighted, riders who have crashed dimmed
+  function fillBoard() {
+    ovBoard.replaceChildren(...standings().slice(0, 100).map((r, i) => {
+      const li = document.createElement('li');
+      if (r === karen && me >= 0) li.className = 'me'; else if (!r.alive) li.className = 'out';
+      [['lbr', String(i + 1)], ['lbn', r.name], ['lbv', money(r)]].forEach(([c, t]) => {
+        const sp = document.createElement('span'); sp.className = c; sp.textContent = t; li.appendChild(sp);
+      });
+      return li;
+    }));
+    ovBoard.scrollTop = 0;
+  }
+  // in the game: the top 5 in the top left, and your own row under them when you are further down
+  // the HOA Newsletter is worked out when a round starts or someone takes over a granny, and is not updated after that
+  let newsRows = null, newsAt = -1e9;
+  function drawBoard(now) {
+    if (!newsRows || newsAt < 0) {
+      newsAt = now;
+      const all = standings(), mine = me >= 0 ? all.indexOf(karen) : -1;
+      newsRows = all.slice(0, 5).map((r, i) => [i + 1, r]);
+      if (mine >= 5) newsRows.push([mine + 1, karen]);
+      newsRows = newsRows.map(([rank, r]) => [rank, r.name, money(r), r === karen && me >= 0 ? karen.color : r.alive ? '#ffffff' : 'rgba(255, 255, 255, 0.45)']);
+      newsRows.gap = mine >= 5;
+    }
+    const rows = newsRows, gap = rows.gap;
+    const X = 14, Y = 10, W = 236, RH = 21, P = 8, H = P * 2 + 18 + rows.length * RH + (gap ? 6 : 0);
+    ctx.save();
+    if (upright.matches) ctx.scale(0.78, 0.78); // smaller panel on an upright phone
+    ctx.fillStyle = 'rgba(11, 10, 26, 0.72)'; rr(ctx, X, Y, W, H, 8); ctx.fill();
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = '700 12px "Figtree", system-ui, sans-serif'; ctx.fillStyle = '#b9b5dd';
+    ctx.fillText('HOA NEWSLETTER', X + P, Y + P + 7);
+    ctx.font = '600 14px "Figtree", system-ui, sans-serif';
+    rows.forEach(([rank, name, value, color], i) => {
+      const y = Y + P + 18 + i * RH + RH / 2 + (gap && i === rows.length - 1 ? 6 : 0);
+      ctx.fillStyle = color;
+      ctx.textAlign = 'left'; ctx.fillText(String(rank), X + P, y); ctx.fillText(name, X + P + 26, y);
+      ctx.textAlign = 'right'; ctx.fillText(value, X + W - P, y);
+    });
+    ctx.restore();
+  }
+  // property value: $19,000 for every step a rider has been alive since they took their granny over (about what it was by the clock)
+  const riderValue = r => (r.steps - r.base) * 19000;
+  // with no granny of your own yet, you see the number you ended on; it does not go up
+  const karenValue = () => me < 0 ? heldVal : riderValue(karen);
   function updateValues() {
-    const txt = moneyText(Math.floor(karen.aliveMs / 50));
+    const v = karenValue();
+    if (v === kChip.lastV) return; // the number did not change: nothing to format or write
+    kChip.lastV = v;
+    const txt = '$' + v.toLocaleString('en-US');
     if (txt !== kChip.shown) { kChip.val.textContent = txt; kChip.shown = txt; }
   }
 
+  // Steps from the server arrive unevenly (the network bunches them up). Playing each one the moment it lands made the
+  // riders stop and jump. Instead they wait in a small queue and come out one every TICK ms, smoothly; the queue is kept
+  // about one step deep, played a bit faster when it grows and a bit slower when it runs dry.
+  const inbox = [];
+  let buffering = true;
+  function stepsQueued() { let c = 0; for (const m of inbox) if (m.t === 'step') c++; return c; }
+  function playOne() {
+    while (inbox.length) {
+      const m = inbox.shift();
+      if (m.t === 'step') {
+        if (online && (state === 'play' || (state === 'over' && liveOver))) applyStep(m.n, m.turns, m.joins);
+        return true;
+      }
+      // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
+      if (m.t === 'won' && online && state === 'play') {
+        me = m.seat; karen = riders[me]; lastAsk = karen.dir; claim = -1;
+        nameRiders(); overlay.hidden = true; renderChips();
+      } else if (m.t === 'lost' && online && state === 'play') { claim = -1; pickGranny(); }
+    }
+    return false;
+  }
+  let clock = 0;
+  function playInbox(dt) {
+    const q = stepsQueued();
+    if (buffering) { if (q >= 2) { buffering = false; clock = TICK; } else { acc = Math.min(acc, TICK); return; } }
+    // far behind (a tab in the background, a long hiccup): catch up at once
+    while (stepsQueued() > 8) { playOne(); clock = 0; }
+    const rate = q > 3 ? 1.25 : q > 1 ? 1.05 : 1;
+    clock += dt * rate;
+    if (clock >= TICK) {
+      if (playOne()) { clock -= TICK; if (clock > TICK) clock = TICK; }
+      else { buffering = true; clock = 0; }
+    }
+    if (state === 'over' && !liveOver) { inbox.length = 0; buffering = true; }
+    acc = buffering ? TICK : Math.min(clock, TICK);
+  }
   function frame(now) {
     const dt = Math.min(now - lastT, 100); lastT = now;
     if (state === 'play') {
       acc += dt;
-      // Karen's value only goes up while you have a granny of your own (with none, the screen shows the first granny)
-      riders.forEach(r => { if (r.alive && !(me < 0 && r === karen)) r.aliveMs += dt; });
-      if (online) acc = Math.min(acc, TICK);
-      else while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
+      if (!online) while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
     }
+    if (online) playInbox(dt);
     updateValues();
     draw(now);
     requestAnimationFrame(frame);
