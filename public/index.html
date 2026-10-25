@@ -147,7 +147,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
 
-  <p class="foot"><span></span><span>v2.14</span></p>
+  <p class="foot"><span></span><span>v2.15</span></p>
 </div>
 
 <script>
@@ -591,6 +591,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   go.addEventListener('click', startRound);
   document.addEventListener('click', e => {
     if (state !== 'over' || overlay.hidden) return;
+    if (go.contains(e.target)) return; // the button already starts the round; counting its tap twice started two rounds at once
     if (performance.now() - overlayShownAt < 500) return;
     startRound();
   });
