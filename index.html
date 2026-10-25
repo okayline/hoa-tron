@@ -58,6 +58,7 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
+.wrap { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 
 header { display: flex; flex-direction: column; gap: 4px; }
@@ -141,7 +142,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
         <h2 id="ovTitle">Ready to ride</h2>
-        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. An iced coffee lets you survive one hit. Don't touch a trail, a house, a mailbox or the fence.</p>
+        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. An iced coffee lets you survive one hit. Don't touch a trail, a house or the fence.</p>
         <button class="go" id="go" type="button">Start</button>
       </div>
     </div>
@@ -156,7 +157,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.8</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.10</span></p>
 </div>
 
 <script>
@@ -199,7 +200,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   // one block of the subdivision (the old street), in its own cells; ti picks the roof colours
   function tileThings(ti, hoa) {
-    const houses = [], trees = [], boxes = [], bushes = [];
+    const houses = [], trees = [], bushes = [];
     [3, 12, 22, 31].forEach((x, i) => {
       houses.push({ x, y: 2, w: 6, h: 3, tone: C.roofs[(i + ti) % 4], face: 'down' });
       houses.push({ x, y: 21, w: 6, h: 3, tone: C.roofs[(i + ti + 2) % 4], face: 'up' });
@@ -208,9 +209,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     houses.push({ x: 35, y: 9, w: 3, h: 6, tone: C.roofs[(ti + 3) % 4], face: 'left' });
     houses.push({ x: 15, y: 11, w: 10, h: 4, tone: hoa ? C.hoa : C.roofs[ti % 4], face: 'down', hoa });
     [[10, 8], [29, 8], [10, 17], [29, 17], [20, 8], [20, 17], [10, 12], [30, 12]].forEach(([x, y]) => trees.push({ x, y }));
-    [[6, 5], [15, 5], [25, 5], [34, 5], [6, 20], [15, 20], [25, 20], [34, 20]].forEach(([x, y]) => boxes.push({ x, y }));
     [[4, 5], [37, 5], [4, 20], [37, 20]].forEach(([x, y]) => bushes.push({ x, y }));
-    return { houses, trees, boxes, bushes };
+    return { houses, trees, bushes };
   }
   // the subdivision: that block, 13 by 20, with only the outer fence; one block has the HOA clubhouse
   const HOA_TI = 9 * TX + 6;
@@ -223,7 +223,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const t = tileThings(ti, ti === HOA_TI);
     t.houses.forEach(h => block(ox + h.x, oy + h.y, h.w, h.h, h.hoa ? 'hoa' : 'house'));
     t.trees.forEach(p => block(ox + p.x, oy + p.y, 1, 1, 'tree'));
-    t.boxes.forEach(p => block(ox + p.x, oy + p.y, 1, 1, 'mail'));
     t.bushes.forEach(p => block(ox + p.x, oy + p.y, 1, 1, 'bush'));
   });
 
@@ -260,7 +259,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function whatIs(x, y, r) {
     if (x < 0 || y < 0 || x >= W || y >= H) return 'the fence';
     const k = kind[y * W + x];
-    if (k) return { fence: 'the fence', house: "a neighbor's house", hoa: 'the HOA clubhouse', tree: 'a tree', mail: 'a mailbox', bush: 'a bush' }[k];
+    if (k) return { fence: 'the fence', house: "a neighbor's house", hoa: 'the HOA clubhouse', tree: 'a tree', bush: 'a bush' }[k];
     const o = trail[y * W + x];
     if (o >= 0) return o === r.id ? `${r.name}'s own trail` : `${riders[o].name}'s trail`;
     return 'something';
@@ -553,11 +552,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     b.fillStyle = C.leafHi;
     [[-6, 1, 2.6], [4, 1, 2.6], [-1, -6, 3]].forEach(([dx, dy, rad]) => { b.beginPath(); b.arc(cx + dx, cy + dy, rad, 0, Math.PI * 2); b.fill(); });
   }
-  function drawMail(m) {
-    const cx = (m.x + 0.5) * CELL, cy = (m.y + 0.5) * CELL;
-    b.fillStyle = C.mail; rr(b, cx - 6, cy - 4, 12, 8, 3); b.fill();
-    b.fillStyle = C.ink; b.fillRect(cx + 5, cy - 8, 2, 6);
-  }
   // the outer fence, only the part inside the view (x0..x1, y0..y1 in map pixels)
   function drawFence(g, x0, y0, x1, y1) {
     const lo = v => Math.max(0, Math.floor(v / 6) * 6);
@@ -597,7 +591,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       for (let x = 0; x < TW; x += 2) b.fillRect(x * CELL, 0, CELL, TH * CELL);
       paintTile();
       const t = v === 4 ? tileThings(HOA_TI, true) : tileThings(v, false);
-      t.houses.forEach(drawHouse); t.trees.forEach(drawTree); t.bushes.forEach(drawBush); t.boxes.forEach(drawMail);
+      t.houses.forEach(drawHouse); t.trees.forEach(drawTree); t.bushes.forEach(drawBush);
     });
   }
   function paintTile() {
@@ -671,23 +665,25 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     segs.forEach(list => { path(list); ctx.stroke(); });
     ctx.restore();
   }
+  function drawCup(cx, cy) {
+    ctx.save();
+    ctx.shadowColor = C.window; ctx.shadowBlur = 8;
+    ctx.fillStyle = 'rgba(236, 233, 251, 0.35)';
+    ctx.beginPath(); ctx.moveTo(cx - 6, cy - 5); ctx.lineTo(cx + 6, cy - 5); ctx.lineTo(cx + 4, cy + 9); ctx.lineTo(cx - 4, cy + 9); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#8a5a34';
+    ctx.beginPath(); ctx.moveTo(cx - 5.4, cy - 1); ctx.lineTo(cx + 5.4, cy - 1); ctx.lineTo(cx + 4, cy + 8); ctx.lineTo(cx - 4, cy + 8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = C.ink; ctx.fillRect(cx - 7, cy - 7, 14, 3);
+    ctx.fillStyle = C.peggy; ctx.fillRect(cx + 1, cy - 13, 2, 7);
+    ctx.restore();
+  }
   // a clear plastic cup: brown coffee, a white lid and a green straw
   function drawCoffeesInView(camX, camY) {
     const cx0 = Math.max(0, Math.floor(camX / CELL)), cy0 = Math.max(0, Math.floor(camY / CELL));
     const cx1 = Math.min(W - 1, cx0 + VW + 1), cy1 = Math.min(H - 1, cy0 + VH + 1);
     for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) {
       if (!coffee[y * W + x]) continue;
-      const cx = (x + 0.5) * CELL, cy = (y + 0.5) * CELL;
-      ctx.save();
-      ctx.shadowColor = C.window; ctx.shadowBlur = 8;
-      ctx.fillStyle = 'rgba(236, 233, 251, 0.35)';
-      ctx.beginPath(); ctx.moveTo(cx - 6, cy - 5); ctx.lineTo(cx + 6, cy - 5); ctx.lineTo(cx + 4, cy + 9); ctx.lineTo(cx - 4, cy + 9); ctx.closePath(); ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#8a5a34';
-      ctx.beginPath(); ctx.moveTo(cx - 5.4, cy - 1); ctx.lineTo(cx + 5.4, cy - 1); ctx.lineTo(cx + 4, cy + 8); ctx.lineTo(cx - 4, cy + 8); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = C.ink; ctx.fillRect(cx - 7, cy - 7, 14, 3);
-      ctx.fillStyle = C.peggy; ctx.fillRect(cx + 1, cy - 13, 2, 7);
-      ctx.restore();
+      drawCup((x + 0.5) * CELL, (y + 0.5) * CELL);
     }
   }
   function paintMini() {
@@ -726,6 +722,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         ctx.restore();
       }
       drawSuv(r, (p.x + 0.5) * CELL, (p.y + 0.5) * CELL);
+      if (r.alive && r.coffee) drawCup((p.x + 0.5) * CELL, (p.y + 0.5) * CELL);
     });
     ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
