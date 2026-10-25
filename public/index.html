@@ -164,7 +164,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.2</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.3</span></p>
 </div>
 
 <script>
@@ -182,7 +182,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     lawn: tok('--lawn'), drive: tok('--drive'), hoa: tok('--hoa'), window: tok('--window'),
     leaf: tok('--leaf'), leafHi: tok('--leaf-hi'), mail: tok('--mail'),
     fence: tok('--fence'), fenceBase: tok('--fence-base'),
-    doris: tok('--doris'), line: tok('--line'), water: tok('--water'), waterHi: tok('--water-hi'), asphalt: tok('--asphalt'),
+    doris: tok('--doris'), gladys: tok('--gladys'), line: tok('--line'), water: tok('--water'), waterHi: tok('--water-hi'), asphalt: tok('--asphalt'),
     field: tok('--field'), concrete: tok('--concrete'), brick: tok('--brick'), peggy: tok('--peggy'),
     roofs: [tok('--roof-a'), tok('--roof-b'), tok('--roof-c'), tok('--roof-d')]
   };
@@ -390,7 +390,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
 
   function reset(seed, humans) {
-    rand = mulberry32(seed >>> 0);
+    rand = mulberry32(seed >>> 0); roundSteps = 0;
     karen = riders[me];
     let k = 1;
     riders.forEach(r => {
@@ -403,7 +403,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     paintMini();
     riders.forEach(r => {
       r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
-      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6; r.coffee = 0;
+      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6; r.coffee = 0; r.kos = 0;
       r.path = [{ x: r.x, y: r.y }];
       trail[r.y * W + r.x] = r.id; stepAt[r.y * W + r.x] = 0;
       miniDot(r);
@@ -434,7 +434,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
 
   // ---------- one tick ----------
+  let roundSteps = 0;
   function step() {
+    roundSteps++;
     for (const r of riders) {
       if (!r.alive) continue;
       if (r.human) { const d = r.turnQ.shift(); if (d !== undefined) r.dir = d; }
@@ -483,6 +485,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         r.alive = false;
         r.boom = { x: (t.x + 0.5) * CELL, y: (t.y + 0.5) * CELL, t0: now };
         r.note = `${r.name} crashed into ${reason[i] || whatIs(t.x, t.y, r)}.`;
+        // a crash into someone else's trail counts for them
+        const owner = reason[i] ? -1 : trail[t.y * W + t.x];
+        if (owner >= 0 && owner !== r.id) riders[owner].kos++;
       } else {
         r.x = t.x; r.y = t.y; const c = r.y * W + r.x;
         trail[c] = r.id; stepAt[c] = r.path.length; r.path.push({ x: r.x, y: r.y });
@@ -1021,6 +1026,38 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
     ctx.strokeRect(mx + camX / CELL * MS, my + camY / CELL * MS, VW * MS, VH * MS);
     ctx.fillStyle = karen.color; ctx.beginPath(); ctx.arc(mx + (kp.x + 0.5) * MS, my + (kp.y + 0.5) * MS, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    drawStats(mx + mw, my - 8);
+  }
+  // the stats row above the minimap: round time, riders left, riders who crashed into your trail, coffees held
+  function drawStats(right, bottom) {
+    const secs = Math.floor(roundSteps * TICK / 1000);
+    const items = [
+      ['clock', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`],
+      ['rider', String(riders.filter(r => r.alive).length)],
+      ['target', String(karen.kos)],
+      ['cup', String(karen.coffee)]
+    ];
+    ctx.save();
+    ctx.font = '700 17px "Figtree", system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    const widths = items.map(([, t]) => 24 + ctx.measureText(t).width + 12);
+    const total = widths.reduce((a, c) => a + c, 0) + 8;
+    let x = right - total;
+    const y = bottom - 15;
+    ctx.fillStyle = 'rgba(11, 10, 26, 0.72)'; rr(ctx, x, y - 15, total, 30, 8); ctx.fill();
+    x += 8;
+    items.forEach(([icon, text], i) => {
+      const cx = x + 10;
+      ctx.fillStyle = C.gladys; ctx.beginPath(); ctx.arc(cx, y, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = C.bg; ctx.fillStyle = C.bg; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath();
+      if (icon === 'clock') { ctx.arc(cx, y, 6, 0, Math.PI * 2); ctx.moveTo(cx, y); ctx.lineTo(cx, y - 4); ctx.moveTo(cx, y); ctx.lineTo(cx + 3, y + 2); ctx.stroke(); }
+      if (icon === 'rider') { ctx.arc(cx, y - 3, 3, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(cx, y + 7, 6, Math.PI, 0); ctx.fill(); }
+      if (icon === 'target') { ctx.arc(cx, y, 5, 0, Math.PI * 2); ctx.moveTo(cx - 8, y); ctx.lineTo(cx - 3, y); ctx.moveTo(cx + 3, y); ctx.lineTo(cx + 8, y); ctx.moveTo(cx, y - 8); ctx.lineTo(cx, y - 3); ctx.moveTo(cx, y + 3); ctx.lineTo(cx, y + 8); ctx.stroke(); }
+      if (icon === 'cup') { ctx.restore(); ctx.save(); drawCup(cx, y + 1, 0.62); ctx.font = '700 17px "Figtree", system-ui, sans-serif'; ctx.textBaseline = 'middle'; }
+      ctx.fillStyle = '#ffffff'; ctx.fillText(text, x + 24, y + 1);
+      x += widths[i];
+    });
     ctx.restore();
   }
 
