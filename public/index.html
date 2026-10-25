@@ -147,7 +147,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
 
-  <p class="foot"><span></span><span>v2.16</span></p>
+  <p class="foot"><span></span><span>v2.17</span></p>
 </div>
 
 <script>
@@ -319,7 +319,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     riders.push({ name, color, baseName: name, baseColor: color, hair: HAIR[i % 4] });
   }
   riders.forEach((r, i) => Object.assign(r, {
-    id: i, wins: 0, aliveMs: 0, shownVal: '', alive: true, path: [], turnQ: [],
+    id: i, wins: 0, steps: 0, base: 0, shownVal: '', alive: true, path: [], turnQ: [],
     sx: 1, sy: 1, sdir: 0, x: 1, y: 1, px: 1, py: 1, dir: 0, boom: null, note: '', seed: 0
   }));
   // you are always Karen (pink); other real players are Karen 2, Karen 3... in their own colours
@@ -382,7 +382,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     paintMini();
     riders.forEach(r => {
       r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
-      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6; r.coffee = 0;
+      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.steps = 0; r.base = 0; r.seed = rand() * 6; r.coffee = 0;
       r.path = [{ x: r.x, y: r.y }];
       trail[r.y * W + r.x] = r.id; stepAt[r.y * W + r.x] = 0;
       miniDot(r);
@@ -423,6 +423,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       r.px = r.x; r.py = r.y;
     }
     moveOnce(riders.filter(r => r.alive));
+    riders.forEach(r => { if (r.alive) r.steps++; }); // the game's own clock: every screen counts the same steps, replays included
     if (replaying) return;
     renderChips();
     if (me < 0) return;
@@ -478,7 +479,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const pick = a => a[Math.floor(Math.random() * a.length)];
   function finish() {
     state = 'over';
-    heldMs = karen.aliveMs; // the value Karen ended on, kept on screen until she takes over a new granny
+    heldVal = riderValue(karen); // the value Karen ended on, kept on screen until she takes over a new granny
     if (online && net) net.send(JSON.stringify({ t: 'over' }));
     const othersAlive = riders.filter(r => r !== karen && r.alive).length;
     let title, text;
@@ -520,7 +521,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
   // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
   // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
-  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldMs = 0;
+  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0;
   function begin(seed, humans, you) {
     clearTimeout(overlayTimer);
     me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play';
@@ -538,6 +539,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function applyStep(n, turns, joins) {
     joins.forEach(seat => {
       riders[seat].human = true; riders[seat].turnQ = [];
+      riders[seat].base = riders[seat].steps; // a rider's value counts from the step they took the granny over
       nameRiders();
     });
     turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
@@ -571,9 +573,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     net.onmessage = e => {
       const m = JSON.parse(e.data);
       if (m.t === 'start') {
-        online = true; me = -1; reset(m.seed, []); state = 'play'; acc = 0;
-        karen.aliveMs = heldMs; // with no granny of your own yet, the value stays at what it was and does not go up
-        replaying = true;
+        online = true; me = -1; reset(m.seed, []); state = 'play'; acc = 0;        replaying = true;
         const at = new Map(m.history.map(h => [h[0], h]));
         for (let n = 1; n <= m.n; n++) { const h = at.get(n); applyStep(n, h ? h[1] : [], h ? h[2] : []); }
         replaying = false;
@@ -582,7 +582,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       } else if (m.t === 'step' && online && state === 'play') applyStep(m.n, m.turns, m.joins);
       // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
       else if (m.t === 'won' && online && state === 'play') {
-        me = m.seat; karen = riders[me]; karen.aliveMs = 0; lastAsk = karen.dir; claim = -1;
+        me = m.seat; karen = riders[me]; lastAsk = karen.dir; claim = -1;
         nameRiders(); overlay.hidden = true; renderChips();
       } else if (m.t === 'lost' && online && state === 'play') { claim = -1; pickGranny(); }
       else if (m.t === 'late') { net.onclose = null; net = null; setTimeout(startRound, 300); }
@@ -1000,7 +1000,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.font = '600 18px "Figtree", system-ui, sans-serif';
     ctx.fillText("Karen's Property Value", 20, 14);
     ctx.font = '700 44px "Figtree", system-ui, sans-serif';
-    ctx.fillText('$' + (Math.floor(karen.aliveMs / 50) * 10000).toLocaleString('en-US'), 18, 36);
+    ctx.fillText('$' + karenValue().toLocaleString('en-US'), 18, 36);
     ctx.restore();
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
     // as wide as the stats row above it
@@ -1052,8 +1052,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
   }
 
+  // property value: $19,000 for every step a rider has been alive since they took their granny over (about what it was by the clock)
+  const riderValue = r => (r.steps - r.base) * 19000;
+  // with no granny of your own yet, you see the number you ended on; it does not go up
+  const karenValue = () => me < 0 ? heldVal : riderValue(karen);
   function updateValues() {
-    const txt = '$' + (Math.floor(karen.aliveMs / 50) * 10000).toLocaleString('en-US');
+    const txt = '$' + karenValue().toLocaleString('en-US');
     if (txt !== kChip.shown) { kChip.val.textContent = txt; kChip.shown = txt; }
   }
 
@@ -1061,8 +1065,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const dt = Math.min(now - lastT, 100); lastT = now;
     if (state === 'play') {
       acc += dt;
-      // Karen's value only goes up while you have a granny of your own (with none, the screen shows the first granny)
-      riders.forEach(r => { if (r.alive && !(me < 0 && r === karen)) r.aliveMs += dt; });
       if (online) acc = Math.min(acc, TICK);
       else while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
     }
