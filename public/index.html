@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.23</span></p>
+  <p class="foot"><span></span><span>v2.24</span></p>
 </div>
 
 <script>
@@ -547,7 +547,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const go = document.getElementById('go');
   const ovIntro = ovText.textContent;
   const ovBoard = document.getElementById('ovBoard');
-  // board = true: the round-over window with the leaderboard (top 50), the board still visible underneath
+  // board = true: the round-over window with the leaderboard (all 100), the board still visible underneath
   function showOverlay(t, p, label, board) {
     ovTitle.textContent = t; ovText.textContent = p; go.textContent = label;
     overlay.classList.toggle('win', !!board); ovBoard.hidden = !board;
@@ -1089,9 +1089,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // the leaderboard: real riders first, then grannies; each group by property value, highest first
   const standings = () => riders.slice().sort((a, b) => (b.human - a.human) || (riderValue(b) - riderValue(a)) || (a.id - b.id));
   const money = r => '$' + riderValue(r).toLocaleString('en-US');
-  // the round-over window: the top 50, your row highlighted, riders who have crashed dimmed
+  // the round-over window: all 100 riders, your row highlighted, riders who have crashed dimmed
   function fillBoard() {
-    ovBoard.replaceChildren(...standings().slice(0, 50).map((r, i) => {
+    ovBoard.replaceChildren(...standings().slice(0, 100).map((r, i) => {
       const li = document.createElement('li');
       if (r === karen && me >= 0) li.className = 'me'; else if (!r.alive) li.className = 'out';
       [['lbr', String(i + 1)], ['lbn', r.name], ['lbv', money(r)]].forEach(([c, t]) => {
