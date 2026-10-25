@@ -5,7 +5,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Monoton&family=Figtree:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
-/* Layout: neon HOA entrance-sign header, one 40x26 board, rider status chips under it, thumb pad on touch screens. */
+/* Layout: neon HOA entrance-sign header, one 40x26 board, rider status chips under it. */
 :root {
   --bg: #0b0a1a;
   --ground: #141230;
@@ -122,13 +122,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .chip.out .nm { text-decoration: line-through; }
 .chip.win { border-color: var(--c); }
 
-.pad { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; touch-action: none; }
-.pad button {
-  min-height: 96px; font-size: 40px; color: var(--ink);
-  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-  -webkit-tap-highlight-color: transparent;
-}
-.pad button:active { background: var(--line); }
 
 .foot { margin: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; font: 500 12px var(--font-mono); color: var(--muted); }
 </style>
@@ -152,12 +145,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
-  <div class="pad" id="pad" aria-label="Steering buttons">
-    <button type="button" data-turn="-1" aria-label="Turn left">&#8630;</button>
-    <button type="button" data-turn="1" aria-label="Turn right">&#8631;</button>
-  </div>
 
-  <p class="foot"><span>Steer with the left and right arrow keys or A and D. Space starts a round.</span><span>v2.8</span></p>
+  <p class="foot"><span>Tap the left or right side of the board to turn. Space starts a round.</span><span>v2.9</span></p>
 </div>
 
 <script>
@@ -597,7 +586,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   document.addEventListener('click', e => {
     if (state !== 'over' || overlay.hidden) return;
     if (performance.now() - overlayShownAt < 500) return;
-    if (e.target.closest && e.target.closest('#pad')) return;
     startRound();
   });
 
@@ -649,9 +637,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       e.preventDefault(); startRound();
     }
   });
-  document.getElementById('pad').addEventListener('pointerdown', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    e.preventDefault(); turn(Number(b.dataset.turn));
+  // tap or click the left half of the board to turn left, the right half to turn right
+  const stage = document.getElementById('stage');
+  stage.addEventListener('pointerdown', e => {
+    if (state !== 'play') return;
+    const r = stage.getBoundingClientRect();
+    turn(e.clientX < r.left + r.width / 2 ? -1 : 1);
   });
 
   // ---------- drawing: static neighborhood ----------
