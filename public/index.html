@@ -96,6 +96,7 @@ canvas { display: block; width: 100%; height: 100%; }
   background: var(--veil);
 }
 .card { max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.card p:empty { display: none; }
 .card h2 { margin: 0; font-size: clamp(1.25rem, 4vw, 1.9rem); font-weight: 700; text-wrap: balance; }
 .card p { margin: 0; color: var(--muted); line-height: 1.45; font-size: clamp(0.85rem, 2.4vw, 1rem); }
 .go {
@@ -137,7 +138,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
         <h2 id="ovTitle">Ready to ride</h2>
-        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Don't touch a trail, a house or the fence.</p>
+        <p id="ovText"></p>
         <button class="go" id="go" type="button">Start</button>
       </div>
     </div>
@@ -146,7 +147,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
 
-  <p class="foot"><span>Tap the left or right side of the board to turn. Space starts a round.</span><span>v2.9</span></p>
+  <p class="foot"><span></span><span>v2.10</span></p>
 </div>
 
 <script>
