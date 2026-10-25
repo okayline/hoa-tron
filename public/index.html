@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.27</span></p>
+  <p class="foot"><span></span><span>v2.28</span></p>
 </div>
 
 <script>
@@ -1154,8 +1154,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       else while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
     }
     updateValues();
-    // the round-over window is live: the list is rebuilt twice a second from the round as it goes on
-    if (!overlay.hidden && !ovBoard.hidden && now - boardAt > 500) { boardAt = now; fillBoard(true); }
+    // the round-over window is live: the list is rebuilt every 2 seconds from the round as it goes on
+    if (!overlay.hidden && !ovBoard.hidden && now - boardAt > 2000) { boardAt = now; fillBoard(true); }
     draw(now);
     requestAnimationFrame(frame);
   }
