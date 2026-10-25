@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.41</span></p>
+  <p class="foot"><span></span><span>v2.42</span></p>
 </div>
 
 <script>
@@ -452,7 +452,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     roundSteps++;
     for (const r of riders) {
       if (!r.alive) continue;
-      if (r.human) { const d = r.turnQ.shift(); if (d !== undefined) r.dir = d; }
+      if (r.human) { const d = r.turnQ.shift(); if (d !== undefined && d !== (r.dir + 2) % 4) r.dir = d; }
       else ai(r);
       r.px = r.x; r.py = r.y;
     }
@@ -574,10 +574,10 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
   // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
   // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
-  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, ending = false, reloadTimer = 0, idleRounds = 0;
+  let pending = 0, net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, ending = false, reloadTimer = 0, idleRounds = 0;
   function begin(seed, humans, you) {
     clearTimeout(overlayTimer);
-    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play'; liveOver = false; ending = false;
+    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; pending = 0; state = 'play'; liveOver = false; ending = false;
     overlay.hidden = true;
     renderChips();
   }
@@ -596,8 +596,10 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       riders[seat].base = riders[seat].steps; // a rider's value counts from the step they took the granny over
       nameRiders();
     });
-    turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
+    turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; if (seat === me && !replaying) pending--; });
     stepN = n; step(); acc = 0;
+    // nothing of yours still waiting: turn from where your car really points (a coffee bounce can change it)
+    if (me >= 0 && pending <= 0) { pending = 0; lastAsk = karen.dir; }
     if (!replaying && state === 'over' && liveOver && !riders.some(r => r.alive)) endRound();
     // the granny picked could crash before the takeover arrives: pick another
     if (!replaying && me < 0 && claim >= 0 && !riders[claim].alive) pickGranny();
@@ -702,7 +704,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     if (state !== 'play' || me < 0 || !karen.alive) return;
     const last = heading();
     if (d === last || d === (last + 2) % 4) return;
-    if (online) { if (net) net.send(JSON.stringify({ t: 'turn', d })); lastAsk = d; return; }
+    // online: at most 2 turns waiting at the server (it drops more), so the heading we turn from is always the real one
+    if (online) { if (net && pending < 2) { net.send(JSON.stringify({ t: 'turn', d })); lastAsk = d; pending++; } return; }
     if (karen.turnQ.length < 2) karen.turnQ.push(d);
   }
   // the only controls: turn left or turn right from the way you are heading
@@ -727,7 +730,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   // ---------- drawing: static neighborhood ----------
   // each block's picture is painted the first time it comes on screen; the 24 most recent are kept
-  const pics = new Map();
+  const pics = new Map(), spare = [];
   let b = null, paintedNow = 0; // paintedNow: blocks painted during this frame
   const mini = document.createElement('canvas');
   mini.width = W; mini.height = H;
@@ -757,9 +760,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     else { b.moveTo(rx + rw / 2, ry + 4); b.lineTo(rx + rw / 2, ry + rh - 4); }
     b.stroke(); b.globalAlpha = 1;
     b.fillStyle = C.bg; b.fillRect(rx + rw * 0.2, ry + rh * 0.2, 5, 5);
-    b.shadowColor = C.window; b.shadowBlur = 10; b.fillStyle = C.window;
-    b.beginPath(); b.arc(lw * 0.2 - dw / 2 - 5, lh / 2 - 6, 2.4, 0, Math.PI * 2); b.fill();
-    b.shadowBlur = 0;
+    { const lx = lw * 0.2 - dw / 2 - 5, ly = lh / 2 - 6, gl = b.createRadialGradient(lx, ly, 0, lx, ly, 9);
+      gl.addColorStop(0, C.window); gl.addColorStop(0.27, C.window); gl.addColorStop(0.3, 'rgba(255,210,122,0.45)'); gl.addColorStop(1, 'rgba(255,210,122,0)');
+      b.fillStyle = gl; b.beginPath(); b.arc(lx, ly, 9, 0, Math.PI * 2); b.fill(); }
     if (h.hoa) {
       b.fillStyle = C.bg; b.font = '600 13px "IBM Plex Mono", monospace';
       b.textAlign = 'center'; b.textBaseline = 'middle';
@@ -816,8 +819,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     let pic = pics.get(ti);
     if (pic) { pics.delete(ti); pics.set(ti, pic); return pic; }
     paintedNow++;
-    pic = document.createElement('canvas'); pic.width = TW * CELL; pic.height = TH * CELL;
-    b = pic.getContext('2d');
+    pic = spare.pop();
+    if (!pic) { pic = document.createElement('canvas'); pic.width = TW * CELL; pic.height = TH * CELL; }
+    b = pic.getContext('2d'); b.setTransform(1, 0, 0, 1, 0, 0); b.globalAlpha = 1;
     b.fillStyle = C.grass; b.fillRect(0, 0, pic.width, pic.height);
     b.fillStyle = C.grassStripe;
     for (let x = 0; x < TW; x += 2) b.fillRect(x * CELL, 0, CELL, TH * CELL);
@@ -825,7 +829,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     t.P.forEach(f => f());
     t.T.forEach(drawThing);
     pics.set(ti, pic);
-    if (pics.size > 24) pics.delete(pics.keys().next().value);
+    if (pics.size > 24) { const old = pics.keys().next().value; spare.push(pics.get(old)); pics.delete(old); }
     return pic;
   }
   // the blocks around the one you are in are painted a little ahead of time, one per frame (and not in a frame that already painted one),
@@ -934,15 +938,28 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- drawing: bikes, trails, effects ----------
   const lerp = (a, c, t) => a + (c - a) * t;
 
+  // Glow (canvas shadowBlur) is very slow, above all on iPhones, and it was done for every car and cup every frame.
+  // Each glow is now painted once into a small picture and copied, which looks the same and costs almost nothing.
+  const sprites = new Map();
+  function sprite(key, w, h, paint) {
+    let c = sprites.get(key);
+    if (!c) {
+      c = document.createElement('canvas'); c.width = w * 2; c.height = h * 2;
+      const g = c.getContext('2d'); g.scale(2, 2); g.translate(w / 2, h / 2); paint(g);
+      sprites.set(key, c);
+    }
+    return c;
+  }
   function drawSuv(r, cx, cy) {
     ctx.save();
     ctx.translate(cx, cy); ctx.rotate(r.dir * Math.PI / 2); ctx.scale(1.3, 1.3);
     ctx.globalAlpha = r.alive ? 1 : 0.45;
     ctx.fillStyle = C.bg;
     [[-8, -10], [8, -10], [-8, 10], [8, 10]].forEach(([wx, wy]) => ctx.fillRect(wx - 2, wy - 4, 4, 8));
-    ctx.shadowColor = r.color; ctx.shadowBlur = r.alive ? 14 : 0;
-    ctx.fillStyle = r.color; rr(ctx, -7.5, -16, 15, 32, 4); ctx.fill();
-    ctx.shadowBlur = 0;
+    if (r.alive) {
+      const glow = sprite('suv' + r.color, 60, 76, g => { g.shadowColor = r.color; g.shadowBlur = 14 * 1.3 * 2; g.fillStyle = r.color; rr(g, -7.5, -16, 15, 32, 4); g.fill(); });
+      ctx.drawImage(glow, -30, -38, 60, 76);
+    } else { ctx.fillStyle = r.color; rr(ctx, -7.5, -16, 15, 32, 4); ctx.fill(); }
     ctx.fillStyle = '#14102a';
     rr(ctx, -5.5, -10, 11, 5, 1.5); ctx.fill();
     rr(ctx, -5.5, 10, 11, 3.5, 1.5); ctx.fill();
@@ -987,8 +1004,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
   }
   function drawCup(cx, cy, size = 1, outline = false) {
+    const pic = sprite('cup' + outline, 40, 44, g => paintCup(g, outline));
+    ctx.drawImage(pic, cx - 20 * size, cy - 22 * size, 40 * size, 44 * size);
+  }
+  function paintCup(ctx, outline) {
+    let cx = 0, cy = 0;
     ctx.save();
-    ctx.translate(cx, cy); ctx.scale(size, size); cx = 0; cy = 0;
     if (outline) {
       // a thin dark outline so the cup reads on top of a car
       ctx.strokeStyle = C.bg; ctx.lineWidth = 3; ctx.lineJoin = 'round';
@@ -1076,8 +1097,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       if (age > 700 || age < 0) return;
       const k = age / 700;
       ctx.save();
-      ctx.globalAlpha = 1 - k; ctx.strokeStyle = r.color; ctx.shadowColor = r.color; ctx.shadowBlur = 12;
-      ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(r.boom.x, r.boom.y, 6 + k * 34, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1 - k; ctx.strokeStyle = r.color; 
+      ctx.lineWidth = 9; ctx.globalAlpha = (1 - k) * 0.3; ctx.beginPath(); ctx.arc(r.boom.x, r.boom.y, 6 + k * 34, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1 - k; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(r.boom.x, r.boom.y, 6 + k * 34, 0, Math.PI * 2); ctx.stroke();
       ctx.lineWidth = 2;
       for (let i = 0; i < 8; i++) {
         const a = i * Math.PI / 4 + r.seed, r0 = 4 + k * 14, r1 = 10 + k * 40;
@@ -1215,7 +1237,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       }
       // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
       if (m.t === 'won' && online && state === 'play') {
-        me = m.seat; karen = riders[me]; lastAsk = karen.dir; claim = -1;
+        me = m.seat; karen = riders[me]; lastAsk = karen.dir; pending = 0; claim = -1;
         nameRiders(); overlay.hidden = true; renderChips();
       } else if (m.t === 'lost' && online && state === 'play') { claim = -1; pickGranny(); }
     }
