@@ -52,7 +52,7 @@ export class Match extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.socks = new Map(); this.seat = new Map(); this.claims = new Map(); this.queue = new Map();
-    this.phase = 'new'; this.n = 0; this.history = []; this.hashes = new Map();
+    this.phase = 'new'; this.n = 0; this.history = []; this.overs = new Set(); this.hashes = new Map();
     this.taken = new Set(); this.released = false; this.timer = null;
     this.owners = new Map(); this.pid = new Map(); // which seat each remembered player took (saved), and which player each connection is
     this.dirty = false; this.lastSave = 0; this.flushed = 0;
@@ -165,7 +165,7 @@ export class Match extends DurableObject {
       const q = this.queue.get(seat) || [];
       if (q.length < 2) q.push(m.d);
       this.queue.set(seat, q);
-    } else if (m.t === 'done' && seat !== undefined) this.end(); // a rider's screen saw the last granny crash: the round is over
+    } else if (m.t === 'over' && seat !== undefined) { this.overs.add(id); this.drop(id, 'end'); }
     else if (m.t === 'hash' && Number.isInteger(m.n)) {
       const seen = this.hashes.get(m.n);
       if (seen === undefined) this.hashes.set(m.n, m.h);

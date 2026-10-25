@@ -162,7 +162,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with a hundred SUVs leaving glowing trails"></canvas>
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
-        <h2 id="ovTitle">Ready to complain...</h2>
+        <h2 id="ovTitle">Ready to complain</h2>
         <p id="ovText"></p>
         <ol class="lb" id="ovBoard" aria-label="Leaderboard" hidden></ol>
         <button class="go" id="go" type="button">Manager!!!</button>
@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.36</span></p>
+  <p class="foot"><span></span><span>v2.37</span></p>
 </div>
 
 <script>
@@ -352,7 +352,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     riders.push({ name, color, baseName: name, baseColor: color, hair: HAIR[i % 4] });
   }
   riders.forEach((r, i) => Object.assign(r, {
-    id: i, wins: 0, steps: 0, base: 0, shownVal: '', alive: true, moves: 0, turnQ: [],
+    id: i, wins: 0, steps: 0, base: 0, shownVal: '', alive: true, path: [], turnQ: [],
     sx: 1, sy: 1, sdir: 0, x: 1, y: 1, px: 1, py: 1, dir: 0, boom: null, note: '', seed: 0
   }));
   // you are always Karen (pink); other real players are Karen 2, Karen 3... in their own colours
@@ -406,7 +406,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
 
   function reset(seed, humans) {
-    newsAt = -1e9;
     rand = mulberry32(seed >>> 0); roundSteps = 0;
     karen = riders[Math.max(me, 0)];
     riders.forEach(r => { r.human = humans.includes(r.id); });
@@ -417,7 +416,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     riders.forEach(r => {
       r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
       r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.steps = 0; r.base = 0; r.seed = rand() * 6; r.coffee = 0;
-      r.moves = 0;
+      r.path = [{ x: r.x, y: r.y }];
       trail[r.y * W + r.x] = r.id; stepAt[r.y * W + r.x] = 0;
       miniDot(r);
     });
@@ -462,7 +461,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     renderChips();
     if (me < 0) return;
     const othersAlive = riders.filter(r => r !== karen && r.alive).length;
-    if (state === 'play' && (!karen.alive || othersAlive === 0)) finish();
+    if (!karen.alive || othersAlive === 0) finish();
     if (online && net && stepN % 50 === 0) net.send(JSON.stringify({ t: 'hash', n: stepN, h: boardHash() }));
   }
   // a short fingerprint of the board, so the server can tell if two screens drifted apart
@@ -503,7 +502,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         r.note = `${r.name} crashed into ${reason[i] || whatIs(t.x, t.y, r)}.`;
       } else {
         r.x = t.x; r.y = t.y; const c = r.y * W + r.x;
-        trail[c] = r.id; stepAt[c] = ++r.moves; // how many moves this rider has made
+        trail[c] = r.id; stepAt[c] = r.path.length; r.path.push({ x: r.x, y: r.y });
         if (coffee[c] && r.coffee < 2) { coffee[c] = 0; r.coffee++; } // holding 2: drive over it and it stays
         miniDot(r);
       }
@@ -514,8 +513,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function finish() {
     state = 'over';
     heldVal = riderValue(karen); // the value Karen ended on, kept on screen until she takes over a new granny
-    // you stay connected after a crash, so the window keeps showing the round as it goes on (not after a win: the winner stops where she is)
-    liveOver = online && !!net && !karen.alive;
+    if (online && net) net.send(JSON.stringify({ t: 'over' }));
     const othersAlive = riders.filter(r => r !== karen && r.alive).length;
     let title, text;
     if (karen.alive) {
@@ -539,21 +537,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     }
     renderChips();
     clearTimeout(overlayTimer);
-    overlayTimer = setTimeout(() => showOverlay(title, text, 'Manager!!!', true), 800);
-    if (othersAlive === 0) endRound();
-  }
-  // nobody is left riding: the server is told the round is over, and a new round starts at once, by itself
-  // (the same as tapping the button)
-  function endRound() {
-    if (ending) return;
-    ending = true;
-    if (online && net) net.send(JSON.stringify({ t: 'done' }));
-    autoReload();
-  }
-  function autoReload() {
-    clearTimeout(reloadTimer);
-    // after 3 new rounds in a row that started by themselves with no key press or tap from you, it waits for the button (a tab left open does not keep a round running on the server all day)
-    reloadTimer = setTimeout(() => { if (state === 'over' && idleRounds < 3) { idleRounds++; startRound(); } }, 0);
+    overlayTimer = setTimeout(() => showOverlay(title, text, 'Ride again', true), 800);
   }
 
   // ---------- overlay + chips ----------
@@ -574,16 +558,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
   // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
   // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
-  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, ending = false, reloadTimer = 0, idleRounds = 0;
+  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0;
   function begin(seed, humans, you) {
     clearTimeout(overlayTimer);
-    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play'; liveOver = false; ending = false;
+    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play';
     overlay.hidden = true;
     renderChips();
   }
   // names: you are Karen (pink), other players Karen 2, Karen 3... in seat order, everyone else is a granny
   function nameRiders() {
-    newsAt = -1e9;
     let k = 1;
     riders.forEach(r => {
       r.name = r.id === me ? 'Karen' : r.human ? `Karen ${++k}` : r.baseName;
@@ -598,7 +581,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     });
     turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
     stepN = n; step(); acc = 0;
-    if (!replaying && state === 'over' && liveOver && !riders.some(r => r.alive)) endRound();
     // the granny picked could crash before the takeover arrives: pick another
     if (!replaying && me < 0 && claim >= 0 && !riders[claim].alive) pickGranny();
   }
@@ -622,8 +604,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function startRound() {
     clearTimeout(overlayTimer);
     if (net) { net.onclose = null; net.close(); net = null; }
-    clearTimeout(reloadTimer); ending = false;
-    online = false; claim = -1; liveOver = false;
+    online = false; claim = -1;
     let opened = false;
     try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' + (playerId() ? '?p=' + playerId() : '')); } catch (e) { net = null; }
     // no server here: a round on this screen only, against 99 grannies
@@ -634,8 +615,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     net.onclose = () => {
       if (!opened) return;
       net = null;
-      if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to complain...', ovIntro, 'Manager!!!'); }
-      else autoReload(); // the round ended while the window was up (the last rider crashed, or the time ran out)
+      if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to complain', ovIntro, 'Manager!!!'); }
     };
     net.onmessage = e => {
       const m = JSON.parse(e.data);
@@ -648,7 +628,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         // a player who has been here before asks for their own granny back first (the server only gives her to them); if she has crashed, any other granny
         if (m.mine !== null && m.mine !== undefined && riders[m.mine] && riders[m.mine].alive) { claim = m.mine; net.send(JSON.stringify({ t: 'claim', seat: m.mine })); }
         else pickGranny();
-      } else if (m.t === 'step' && online && (state === 'play' || (state === 'over' && liveOver))) applyStep(m.n, m.turns, m.joins);
+      } else if (m.t === 'step' && online && state === 'play') applyStep(m.n, m.turns, m.joins);
       // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
       else if (m.t === 'won' && online && state === 'play') {
         me = m.seat; karen = riders[me]; lastAsk = karen.dir; claim = -1;
@@ -679,25 +659,19 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const gChip = makeChip(tok('--gladys'), 'Others still riding');
   // the same iced coffee cup as on the map, small, for Karen's chip
   const CUP_SVG = '<svg class="cup" viewBox="-8 -14 16 24" aria-label="iced coffee"><path d="M-6 -5H6L4 9H-4Z" fill="rgba(236,233,251,0.35)" stroke="#0b0a1a" stroke-width="1.5"/><path d="M-5.4 -1H5.4L4 8H-4Z" fill="#8a5a34"/><rect x="-7" y="-7" width="14" height="3" fill="#ece9fb"/><rect x="1" y="-13" width="2" height="7" fill="#7dff6a"/></svg>';
-  let chipKey = '', gVal = '', gMeta = '';
   function renderChips() {
     let status;
     if (state === 'ready') status = 'on the line';
     else if (!karen.alive) status = 'crashed';
     else if (state === 'over') status = 'winner';
     else status = 'riding';
-    const cups = karen.alive ? karen.coffee : 0, key = status + '|' + wins + '|' + cups;
-    if (key !== chipKey) {
-      chipKey = key;
-      kChip.meta.textContent = `${status} · ${wins} ${wins === 1 ? 'win' : 'wins'}${cups ? ' · ' : ''}`;
-      if (cups) kChip.meta.insertAdjacentHTML('beforeend', CUP_SVG.repeat(cups));
-    }
+    kChip.meta.textContent = `${status} · ${wins} ${wins === 1 ? 'win' : 'wins'}${karen.coffee && karen.alive ? ' · ' : ''}`;
+    if (karen.alive) kChip.meta.insertAdjacentHTML('beforeend', CUP_SVG.repeat(karen.coffee));
     kChip.li.classList.toggle('out', !karen.alive && state !== 'ready');
     kChip.li.classList.toggle('win', karen.alive && state === 'over');
     const left = riders.filter(r => r !== karen && r.alive).length;
-    const gv = `${left} / ${N - 1}`, gm = state === 'ready' ? 'on the line' : `${N - 1 - left} crashed`;
-    if (gv !== gVal) { gVal = gv; gChip.val.textContent = gv; }
-    if (gm !== gMeta) { gMeta = gm; gChip.meta.textContent = gm; }
+    gChip.val.textContent = `${left} / ${N - 1}`;
+    gChip.meta.textContent = state === 'ready' ? 'on the line' : `${N - 1 - left} crashed`;
   }
 
   // ---------- input ----------
@@ -719,8 +693,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       e.preventDefault(); startRound();
     }
   });
-  // any key press or tap counts as you being here
-  ['keydown', 'pointerdown'].forEach(ev => addEventListener(ev, () => { idleRounds = 0; }, true));
   // tap or click the left half of the board to turn left, the right half to turn right
   const stage = document.getElementById('stage');
   stage.addEventListener('pointerdown', e => {
@@ -732,7 +704,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- drawing: static neighborhood ----------
   // each block's picture is painted the first time it comes on screen; the 24 most recent are kept
   const pics = new Map();
-  let b = null, paintedNow = 0; // paintedNow: blocks painted during this frame
+  let b = null;
   const mini = document.createElement('canvas');
   mini.width = W; mini.height = H;
   const mg = mini.getContext('2d');
@@ -819,7 +791,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function tilePic(ti) {
     let pic = pics.get(ti);
     if (pic) { pics.delete(ti); pics.set(ti, pic); return pic; }
-    paintedNow++;
     pic = document.createElement('canvas'); pic.width = TW * CELL; pic.height = TH * CELL;
     b = pic.getContext('2d');
     b.fillStyle = C.grass; b.fillRect(0, 0, pic.width, pic.height);
@@ -831,17 +802,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     pics.set(ti, pic);
     if (pics.size > 24) pics.delete(pics.keys().next().value);
     return pic;
-  }
-  // the blocks around the one you are in are painted a little ahead of time, one per frame (and not in a frame that already painted one),
-  // so a block is not painted at the moment it comes into view
-  function warmTiles(camX, camY) {
-    const cx = Math.floor((camX + canvas.width / 2) / (TW * CELL)), cy = Math.floor((camY + canvas.height / 2) / (TH * CELL));
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const tx = cx + dx, ty = cy + dy;
-      if (tx < 0 || ty < 0 || tx >= TX || ty >= TY) continue;
-      const ti = ty * TX + tx;
-      if (!pics.has(ti)) { tilePic(ti); return; }
-    }
   }
   function disc(cx, cy, r, color) { b.fillStyle = color; b.beginPath(); b.arc(cx * CELL, cy * CELL, r * CELL, 0, Math.PI * 2); b.fill(); }
   function lot(x0, y0, x1, y1, color) { b.fillStyle = color || C.asphalt; rr(b, x0 * CELL, y0 * CELL, (x1 - x0 + 1) * CELL, (y1 - y0 + 1) * CELL, 6); b.fill(); }
@@ -961,16 +921,18 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   // trails are drawn each frame from the grid, only the cells on screen: two cells join when the same rider
   // drove from one to the other (their step numbers differ by one)
-  const SEGS = Array.from({ length: N }, () => []); // one list of line pieces per rider, emptied and reused every frame
   function drawTrailsInView(camX, camY) {
     const cx0 = Math.max(0, Math.floor(camX / CELL) - 1), cy0 = Math.max(0, Math.floor(camY / CELL) - 1);
     const cx1 = Math.min(W - 1, cx0 + VW + 2), cy1 = Math.min(H - 1, cy0 + VH + 2);
-    for (let k = 0; k < N; k++) SEGS[k].length = 0;
+    const segs = new Map();
     for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) {
       const i = y * W + x, o = trail[i];
       if (o < 0) continue;
-      if (x < W - 1 && trail[i + 1] === o && Math.abs(stepAt[i + 1] - stepAt[i]) === 1) SEGS[o].push(x, y, x + 1, y);
-      if (y < H - 1 && trail[i + W] === o && Math.abs(stepAt[i + W] - stepAt[i]) === 1) SEGS[o].push(x, y, x, y + 1);
+      for (const j of [x < W - 1 ? i + 1 : -1, y < H - 1 ? i + W : -1]) {
+        if (j < 0 || trail[j] !== o || Math.abs(stepAt[j] - stepAt[i]) !== 1) continue;
+        if (!segs.has(o)) segs.set(o, []);
+        segs.get(o).push(x, y, j % W, Math.floor(j / W));
+      }
     }
     const path = list => {
       ctx.beginPath();
@@ -980,14 +942,13 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       }
     };
     ctx.save(); ctx.lineCap = 'round';
-    SEGS.forEach((list, o) => {
-      if (!list.length) return;
+    segs.forEach((list, o) => {
       ctx.strokeStyle = riders[o].color;
       ctx.globalAlpha = 0.3; ctx.lineWidth = 14; path(list); ctx.stroke();
       ctx.globalAlpha = 1; ctx.lineWidth = 6; path(list); ctx.stroke();
     });
     ctx.strokeStyle = C.ink; ctx.globalAlpha = 0.8; ctx.lineWidth = 2;
-    SEGS.forEach(list => { if (!list.length) return; path(list); ctx.stroke(); });
+    segs.forEach(list => { path(list); ctx.stroke(); });
     ctx.restore();
   }
   function drawCup(cx, cy, size = 1, outline = false) {
@@ -1018,42 +979,31 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       drawCup((x + 0.5) * CELL, (y + 0.5) * CELL);
     }
   }
-  // the minimap's background (the map and its walls) never changes: it is painted once, and each round starts from a copy of it
-  let miniBase = null;
   function paintMini() {
-    if (!miniBase) {
-      miniBase = document.createElement('canvas'); miniBase.width = W; miniBase.height = H;
-      const g = miniBase.getContext('2d');
-      g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
-      g.fillStyle = C.line;
-      for (let i = 0; i < W * H; i++) if (solid[i]) g.fillRect(i % W, Math.floor(i / W), 1, 1);
-    }
-    mg.clearRect(0, 0, W, H); mg.drawImage(miniBase, 0, 0);
+    mg.fillStyle = C.bg; mg.fillRect(0, 0, W, H);
+    mg.fillStyle = C.line;
+    for (let i = 0; i < W * H; i++) if (solid[i]) mg.fillRect(i % W, Math.floor(i / W), 1, 1);
   }
   function miniDot(r) { mg.fillStyle = r.color; mg.fillRect(r.x, r.y, 1, 1); }
 
-  const KP = { x: 0, y: 0 }, SP = { x: 0, y: 0 };
   function draw(now) {
-    paintedNow = 0;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const t = state === 'play' ? Math.min(acc / TICK, 1) : 1;
-    // where a rider is drawn, written into one reused object (KP for Karen, SP for the others) instead of a new one per rider per frame
-    const pos = (r, o) => { if (r.alive && state === 'play') { o.x = lerp(r.px, r.x, t); o.y = lerp(r.py, r.y, t); } else { o.x = r.x; o.y = r.y; } return o; };
+    const pos = r => (r.alive && state === 'play') ? { x: lerp(r.px, r.x, t), y: lerp(r.py, r.y, t) } : { x: r.x, y: r.y };
     // camera: Karen in the middle, held inside the fence
-    const kp = pos(karen, KP);
+    const kp = pos(karen);
     const camX = Math.max(0, Math.min(W - VW, kp.x + 0.5 - VW / 2)) * CELL;
     const camY = Math.max(0, Math.min(H - VH, kp.y + 0.5 - VH / 2)) * CELL;
     ctx.save(); ctx.translate(-camX, -camY);
     for (let ty = Math.floor(camY / (TH * CELL)); ty <= Math.min(TY - 1, Math.floor((camY + canvas.height) / (TH * CELL))); ty++)
       for (let tx = Math.floor(camX / (TW * CELL)); tx <= Math.min(TX - 1, Math.floor((camX + canvas.width) / (TW * CELL))); tx++)
         ctx.drawImage(tilePic(ty * TX + tx), tx * TW * CELL, ty * TH * CELL);
-    if (!paintedNow) warmTiles(camX, camY);
     drawFence(ctx, camX, camY, camX + canvas.width, camY + canvas.height);
     drawCoffeesInView(camX, camY);
     drawTrailsInView(camX, camY);
     const seen = (x, y) => x * CELL > camX - 60 && x * CELL < camX + canvas.width + 60 && y * CELL > camY - 60 && y * CELL < camY + canvas.height + 60;
     riders.forEach(r => {
-      const p = pos(r, SP);
+      const p = pos(r);
       if (!seen(p.x, p.y)) return;
       if (r.alive && state === 'play') {
         // the last bit of trail, from the cell left behind to where the SUV is now
@@ -1069,7 +1019,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = C.bg;
     riders.forEach(r => {
       if (!r.alive) return;
-      const p = pos(r, SP);
+      const p = pos(r);
       if (!seen(p.x, p.y)) return;
       const tx = (p.x + 0.5) * CELL, ty = (p.y + 0.5) * CELL - 28;
       ctx.strokeText(r.name, tx, ty); ctx.fillStyle = r.color; ctx.fillText(r.name, tx, ty);
@@ -1093,7 +1043,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       ctx.restore();
     });
     ctx.restore();
-    drawBoard(now); // the leaderboard in the top left
+    drawBoard(); // the leaderboard in the top left
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
     // as wide as the stats row above it
     // on a phone held upright the whole corner (minimap and stats row) is drawn smaller, shrinking towards the bottom right corner
@@ -1148,8 +1098,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
   }
 
-  // the leaderboard: everyone by property value, highest first (the same value: lower seat first)
-  const standings = () => riders.slice().sort((a, b) => (riderValue(b) - riderValue(a)) || (a.id - b.id));
+  // the leaderboard: real riders first, then grannies; each group by property value, highest first
+  const standings = () => riders.slice().sort((a, b) => (b.human - a.human) || (riderValue(b) - riderValue(a)) || (a.id - b.id));
   const money = r => '$' + riderValue(r).toLocaleString('en-US');
   // the round-over window: all 100 riders, your row highlighted, riders who have crashed dimmed
   function fillBoard() {
@@ -1157,25 +1107,18 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       const li = document.createElement('li');
       if (r === karen && me >= 0) li.className = 'me'; else if (!r.alive) li.className = 'out';
       [['lbr', String(i + 1)], ['lbn', r.name], ['lbv', money(r)]].forEach(([c, t]) => {
-        const sp = document.createElement('span'); sp.className = c; sp.textContent = t; li.appendChild(sp);
+        const s = document.createElement('span'); s.className = c; s.textContent = t; li.appendChild(s);
       });
       return li;
     }));
     ovBoard.scrollTop = 0;
   }
   // in the game: the top 5 in the top left, and your own row under them when you are further down
-  // the HOA Newsletter is worked out when a round starts or someone takes over a granny, and is not updated after that
-  let newsRows = null, newsAt = -1e9;
-  function drawBoard(now) {
-    if (!newsRows || newsAt < 0) {
-      newsAt = now;
-      const all = standings(), mine = me >= 0 ? all.indexOf(karen) : -1;
-      newsRows = all.slice(0, 5).map((r, i) => [i + 1, r]);
-      if (mine >= 5) newsRows.push([mine + 1, karen]);
-      newsRows = newsRows.map(([rank, r]) => [rank, r.name, money(r), r === karen && me >= 0 ? karen.color : r.alive ? '#ffffff' : 'rgba(255, 255, 255, 0.45)']);
-      newsRows.gap = mine >= 5;
-    }
-    const rows = newsRows, gap = rows.gap;
+  function drawBoard() {
+    const all = standings(), mine = me >= 0 ? all.indexOf(karen) : -1;
+    const rows = all.slice(0, 5).map((r, i) => [i + 1, r]);
+    const gap = mine >= 5;
+    if (gap) rows.push([mine + 1, karen]);
     const X = 14, Y = 10, W = 236, RH = 21, P = 8, H = P * 2 + 18 + rows.length * RH + (gap ? 6 : 0);
     ctx.save();
     if (upright.matches) ctx.scale(0.78, 0.78); // smaller panel on an upright phone
@@ -1184,11 +1127,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.font = '700 12px "Figtree", system-ui, sans-serif'; ctx.fillStyle = '#b9b5dd';
     ctx.fillText('HOA NEWSLETTER', X + P, Y + P + 7);
     ctx.font = '600 14px "Figtree", system-ui, sans-serif';
-    rows.forEach(([rank, name, value, color], i) => {
+    rows.forEach(([rank, r], i) => {
       const y = Y + P + 18 + i * RH + RH / 2 + (gap && i === rows.length - 1 ? 6 : 0);
-      ctx.fillStyle = color;
-      ctx.textAlign = 'left'; ctx.fillText(String(rank), X + P, y); ctx.fillText(name, X + P + 26, y);
-      ctx.textAlign = 'right'; ctx.fillText(value, X + W - P, y);
+      ctx.fillStyle = r === karen && me >= 0 ? karen.color : r.alive ? '#ffffff' : 'rgba(255, 255, 255, 0.45)';
+      ctx.textAlign = 'left'; ctx.fillText(String(rank), X + P, y); ctx.fillText(r.name, X + P + 26, y);
+      ctx.textAlign = 'right'; ctx.fillText(money(r), X + W - P, y);
     });
     ctx.restore();
   }
@@ -1197,10 +1140,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // with no granny of your own yet, you see the number you ended on; it does not go up
   const karenValue = () => me < 0 ? heldVal : riderValue(karen);
   function updateValues() {
-    const v = karenValue();
-    if (v === kChip.lastV) return; // the number did not change: nothing to format or write
-    kChip.lastV = v;
-    const txt = '$' + v.toLocaleString('en-US');
+    const txt = '$' + karenValue().toLocaleString('en-US');
     if (txt !== kChip.shown) { kChip.val.textContent = txt; kChip.shown = txt; }
   }
 
