@@ -156,7 +156,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.6</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.5</span></p>
 </div>
 
 <script>
@@ -712,8 +712,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       ctx.restore();
     });
     ctx.restore();
-    // minimap, top middle: every trail, Karen's spot, and the part of the map on screen
-    const MS = 0.5, mw = W * MS, mh = H * MS, mx = (canvas.width - mw) / 2, my = 10;
+    // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
+    const MS = 0.5, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
     ctx.save();
     ctx.globalAlpha = 0.85; ctx.imageSmoothingEnabled = false;
     ctx.drawImage(mini, mx, my, mw, mh);
