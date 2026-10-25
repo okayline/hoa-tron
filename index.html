@@ -116,6 +116,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .dot { grid-row: 1 / span 3; width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
 .nm { grid-column: 2; grid-row: 2; font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
 .meta { grid-column: 2; grid-row: 3; font: 500 12px var(--font-mono); color: var(--muted); }
+.meta .cup { width: 11px; height: 16px; vertical-align: -3px; margin-right: 2px; }
 .val { grid-column: 2; grid-row: 1; font: 700 1.1rem / 1.1 var(--font-body); font-size: max(14px, min(1.9rem, calc((100cqw - 46px) / 6.8))); font-variant-numeric: tabular-nums; color: var(--c); white-space: nowrap; }
 .chip.out { opacity: 0.5; }
 .chip.out .nm { text-decoration: line-through; }
@@ -163,7 +164,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.13</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.14</span></p>
 </div>
 
 <script>
@@ -541,13 +542,16 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
   Object.assign(karen, makeChip(karen.color, "Karen's Property Value"));
   const gChip = makeChip(tok('--gladys'), 'Grannies still riding');
+  // the same iced coffee cup as on the map, small, for Karen's chip
+  const CUP_SVG = '<svg class="cup" viewBox="-8 -14 16 24" aria-label="iced coffee"><path d="M-6 -5H6L4 9H-4Z" fill="rgba(236,233,251,0.35)" stroke="#0b0a1a" stroke-width="1.5"/><path d="M-5.4 -1H5.4L4 8H-4Z" fill="#8a5a34"/><rect x="-7" y="-7" width="14" height="3" fill="#ece9fb"/><rect x="1" y="-13" width="2" height="7" fill="#7dff6a"/></svg>';
   function renderChips() {
     let status;
     if (state === 'ready') status = 'on the line';
     else if (!karen.alive) status = 'crashed';
     else if (state === 'over') status = 'winner';
     else status = 'riding';
-    karen.meta.textContent = `${status} · ${karen.wins} ${karen.wins === 1 ? 'win' : 'wins'}${karen.coffee && karen.alive ? ' · ' + '☕'.repeat(karen.coffee) : ''}`;
+    karen.meta.textContent = `${status} · ${karen.wins} ${karen.wins === 1 ? 'win' : 'wins'}${karen.coffee && karen.alive ? ' · ' : ''}`;
+    if (karen.alive) karen.meta.insertAdjacentHTML('beforeend', CUP_SVG.repeat(karen.coffee));
     karen.li.classList.toggle('out', !karen.alive && state !== 'ready');
     karen.li.classList.toggle('win', karen.alive && state === 'over');
     const left = riders.filter(r => !r.human && r.alive).length;
