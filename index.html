@@ -156,12 +156,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or swipe the board. Space starts a round.</span><span>v1.2</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.3</span></p>
 </div>
 
 <script>
 (() => {
-  const VW = 40, VH = 26, TW = 40, TH = 26, W = TW * 4, H = TH * 4, CELL = 24, TICK = 95, N = 100;
+  const VW = 40, VH = 26, TW = 40, TH = 26, TX = 8, TY = 6, W = TW * TX, H = TH * TY, CELL = 24, TICK = 95, N = 100;
   // a small seeded random, so the same seed and the same turns give the same round on every screen
   const mulberry32 = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   let rand = mulberry32(1);
@@ -186,41 +186,43 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const solid = new Uint8Array(W * H);
   const kind = new Array(W * H).fill('');
   const trail = new Int16Array(W * H).fill(-1);
-  const houses = [], trees = [], boxes = [], bushes = [];
+  const stepAt = new Int32Array(W * H);
 
   function block(x, y, w, h, k) {
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) { solid[j * W + i] = 1; kind[j * W + i] = k; }
   }
-  function addHouse(x, y, w, h, tone, face, hoa) {
-    block(x, y, w, h, hoa ? 'hoa' : 'house');
-    houses.push({ x, y, w, h, tone, face, hoa: !!hoa });
-  }
   block(0, 0, W, 1, 'fence'); block(0, H - 1, W, 1, 'fence');
   block(0, 0, 1, H, 'fence'); block(W - 1, 0, 1, H, 'fence');
 
-  // the subdivision: the old street, 4 by 4, with only the outer fence
-  const TILES = [];
-  for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++) TILES.push({ ox: tx * TW, oy: ty * TH });
-  TILES.forEach(({ ox, oy }, ti) => {
+  // one block of the subdivision (the old street), in its own cells; ti picks the roof colours
+  function tileThings(ti, hoa) {
+    const houses = [], trees = [], boxes = [], bushes = [];
     [3, 12, 22, 31].forEach((x, i) => {
-      addHouse(ox + x, oy + 2, 6, 3, C.roofs[(i + ti) % 4], 'down');
-      addHouse(ox + x, oy + 21, 6, 3, C.roofs[(i + ti + 2) % 4], 'up');
+      houses.push({ x, y: 2, w: 6, h: 3, tone: C.roofs[(i + ti) % 4], face: 'down' });
+      houses.push({ x, y: 21, w: 6, h: 3, tone: C.roofs[(i + ti + 2) % 4], face: 'up' });
     });
-    addHouse(ox + 2, oy + 9, 3, 6, C.roofs[(ti + 1) % 4], 'right');
-    addHouse(ox + 35, oy + 9, 3, 6, C.roofs[(ti + 3) % 4], 'left');
-    const hoa = ti === 5;
-    addHouse(ox + 15, oy + 11, 10, 4, hoa ? C.hoa : C.roofs[ti % 4], 'down', hoa);
-    [[10, 8], [29, 8], [10, 17], [29, 17], [20, 8], [20, 17], [10, 12], [30, 12]].forEach(([x, y]) => {
-      block(ox + x, oy + y, 1, 1, 'tree'); trees.push({ x: ox + x, y: oy + y });
-    });
-    [[6, 5], [15, 5], [25, 5], [34, 5], [6, 20], [15, 20], [25, 20], [34, 20]].forEach(([x, y]) => {
-      block(ox + x, oy + y, 1, 1, 'mail'); boxes.push({ x: ox + x, y: oy + y });
-    });
-    [[4, 5], [9, 5], [12, 5], [18, 5], [22, 5], [28, 5], [31, 5], [37, 5],
-     [4, 20], [9, 20], [12, 20], [18, 20], [22, 20], [28, 20], [31, 20], [37, 20],
-     [14, 11], [14, 14], [25, 11], [25, 14], [8, 10], [8, 15], [32, 10], [32, 15]].forEach(([x, y]) => {
-      block(ox + x, oy + y, 1, 1, 'bush'); bushes.push({ x: ox + x, y: oy + y });
-    });
+    houses.push({ x: 2, y: 9, w: 3, h: 6, tone: C.roofs[(ti + 1) % 4], face: 'right' });
+    houses.push({ x: 35, y: 9, w: 3, h: 6, tone: C.roofs[(ti + 3) % 4], face: 'left' });
+    houses.push({ x: 15, y: 11, w: 10, h: 4, tone: hoa ? C.hoa : C.roofs[ti % 4], face: 'down', hoa });
+    [[10, 8], [29, 8], [10, 17], [29, 17], [20, 8], [20, 17], [10, 12], [30, 12]].forEach(([x, y]) => trees.push({ x, y }));
+    [[6, 5], [15, 5], [25, 5], [34, 5], [6, 20], [15, 20], [25, 20], [34, 20]].forEach(([x, y]) => boxes.push({ x, y }));
+    [[4, 5], [37, 5], [4, 20], [37, 20],
+     [14, 11], [14, 14], [25, 11], [25, 14], [8, 10], [8, 15], [32, 10], [32, 15]].forEach(([x, y]) => bushes.push({ x, y }));
+    return { houses, trees, boxes, bushes };
+  }
+  // the subdivision: that block, 8 by 6, with only the outer fence; one block has the HOA clubhouse
+  const HOA_TI = 2 * TX + 3;
+  const TILES = [];
+  for (let ty = 0; ty < TY; ty++) for (let tx = 0; tx < TX; tx++) {
+    const ti = TILES.length;
+    TILES.push({ ox: tx * TW, oy: ty * TH, v: ti === HOA_TI ? 4 : ti % 4 });
+  }
+  TILES.forEach(({ ox, oy }, ti) => {
+    const t = tileThings(ti, ti === HOA_TI);
+    t.houses.forEach(h => block(ox + h.x, oy + h.y, h.w, h.h, h.hoa ? 'hoa' : 'house'));
+    t.trees.forEach(p => block(ox + p.x, oy + p.y, 1, 1, 'tree'));
+    t.boxes.forEach(p => block(ox + p.x, oy + p.y, 1, 1, 'mail'));
+    t.bushes.forEach(p => block(ox + p.x, oy + p.y, 1, 1, 'bush'));
   });
 
   // ---------- riders ----------
@@ -272,7 +274,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       if (best >= 0) cand.push({ x, y, d: best });
     }
     for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [cand[i], cand[j]] = [cand[j], cand[i]]; }
-    let gap = 5, picked = [];
+    let gap = 10, picked = [];
     while (picked.length < N && gap >= 1) {
       picked = [];
       for (const c of cand) {
@@ -288,13 +290,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     rand = mulberry32((Math.random() * 4294967296) >>> 0);
     trail.fill(-1);
     pickStarts();
-    tg.clearRect(0, 0, trailCanvas.width, trailCanvas.height);
     paintMini();
     riders.forEach(r => {
       r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
       r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6;
       r.path = [{ x: r.x, y: r.y }];
-      trail[r.y * W + r.x] = r.id;
+      trail[r.y * W + r.x] = r.id; stepAt[r.y * W + r.x] = 0;
       miniDot(r);
     });
   }
@@ -341,8 +342,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         r.boom = { x: (t.x + 0.5) * CELL, y: (t.y + 0.5) * CELL, t0: now };
         r.note = `${r.name} crashed into ${reason[i] || whatIs(t.x, t.y, r)}.`;
       } else {
-        r.x = t.x; r.y = t.y; trail[r.y * W + r.x] = r.id; r.path.push({ x: r.x, y: r.y });
-        paintSegment(r); miniDot(r);
+        r.x = t.x; r.y = t.y; trail[r.y * W + r.x] = r.id; stepAt[r.y * W + r.x] = r.path.length; r.path.push({ x: r.x, y: r.y });
+        miniDot(r);
       }
     });
     if (dead.size) renderChips();
@@ -446,7 +447,20 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   });
   const stage = document.getElementById('stage');
   let sw = null;
-  stage.addEventListener('pointerdown', e => { if (state === 'play') sw = { x: e.clientX, y: e.clientY }; });
+  let karenOnScreen = { x: 0, y: 0 };
+  stage.addEventListener('pointerdown', e => {
+    if (state !== 'play') return;
+    sw = { x: e.clientX, y: e.clientY, swiped: false };
+    // a tap or click steers toward that spot: the side it is further toward, or the other side if that is straight ahead or behind
+    const rect = canvas.getBoundingClientRect();
+    const dx = (e.clientX - rect.left) * canvas.width / rect.width - karenOnScreen.x;
+    const dy = (e.clientY - rect.top) * canvas.height / rect.height - karenOnScreen.y;
+    const h = dx > 0 ? 1 : 3, v = dy > 0 ? 2 : 0;
+    const main = Math.abs(dx) > Math.abs(dy) ? h : v, other = main === h ? v : h;
+    const heading = karen.turnQ.length ? karen.turnQ[karen.turnQ.length - 1] : karen.dir;
+    if (main % 2 !== heading % 2) queueTurn(main);
+    else if (Math.abs(main === h ? dy : dx) > CELL / 2) queueTurn(other);
+  });
   stage.addEventListener('pointermove', e => {
     if (!sw || state !== 'play') return;
     const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
@@ -461,12 +475,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   });
 
   // ---------- drawing: static neighborhood ----------
-  const bg = document.createElement('canvas');
-  bg.width = W * CELL; bg.height = H * CELL;
-  const b = bg.getContext('2d');
-  const trailCanvas = document.createElement('canvas');
-  trailCanvas.width = W * CELL; trailCanvas.height = H * CELL;
-  const tg = trailCanvas.getContext('2d');
+  // five pictures of one block (four roof colourings and the HOA block), copied wherever a block is on screen
+  const blockPics = [0, 1, 2, 3, 4].map(() => { const c = document.createElement('canvas'); c.width = TW * CELL; c.height = TH * CELL; return c; });
+  let b = blockPics[0].getContext('2d');
   const mini = document.createElement('canvas');
   mini.width = W; mini.height = H;
   const mg = mini.getContext('2d');
@@ -524,14 +535,23 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     b.fillStyle = C.mail; rr(b, cx - 6, cy - 4, 12, 8, 3); b.fill();
     b.fillStyle = C.ink; b.fillRect(cx + 5, cy - 8, 2, 6);
   }
-  function drawFence() {
-    b.fillStyle = C.fenceBase;
-    b.fillRect(0, 0, W * CELL, CELL); b.fillRect(0, (H - 1) * CELL, W * CELL, CELL);
-    b.fillRect(0, 0, CELL, H * CELL); b.fillRect((W - 1) * CELL, 0, CELL, H * CELL);
-    b.fillStyle = C.fence; b.globalAlpha = 0.8;
-    for (let px = 0; px < W * CELL; px += 6) { b.fillRect(px + 1, 4, 3, CELL - 8); b.fillRect(px + 1, (H - 1) * CELL + 4, 3, CELL - 8); }
-    for (let py = 0; py < H * CELL; py += 6) { b.fillRect(4, py + 1, CELL - 8, 3); b.fillRect((W - 1) * CELL + 4, py + 1, CELL - 8, 3); }
-    b.globalAlpha = 1;
+  // the outer fence, only the part inside the view (x0..x1, y0..y1 in map pixels)
+  function drawFence(g, x0, y0, x1, y1) {
+    const lo = v => Math.max(0, Math.floor(v / 6) * 6);
+    g.fillStyle = C.fenceBase;
+    g.fillRect(0, 0, W * CELL, CELL); g.fillRect(0, (H - 1) * CELL, W * CELL, CELL);
+    g.fillRect(0, 0, CELL, H * CELL); g.fillRect((W - 1) * CELL, 0, CELL, H * CELL);
+    g.fillStyle = C.fence; g.globalAlpha = 0.8;
+    const top = y0 < CELL, bot = y1 > (H - 1) * CELL, left = x0 < CELL, right = x1 > (W - 1) * CELL;
+    if (top || bot) for (let px = lo(x0); px < Math.min(x1, W * CELL); px += 6) {
+      if (top) g.fillRect(px + 1, 4, 3, CELL - 8);
+      if (bot) g.fillRect(px + 1, (H - 1) * CELL + 4, 3, CELL - 8);
+    }
+    if (left || right) for (let py = lo(y0); py < Math.min(y1, H * CELL); py += 6) {
+      if (left) g.fillRect(4, py + 1, CELL - 8, 3);
+      if (right) g.fillRect((W - 1) * CELL + 4, py + 1, CELL - 8, 3);
+    }
+    g.globalAlpha = 1;
   }
   function strip(x0, y0, x1, y1, color) {
     b.fillStyle = color; b.fillRect(x0 * CELL, y0 * CELL, (x1 - x0 + 1) * CELL, (y1 - y0 + 1) * CELL);
@@ -547,12 +567,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     b.stroke();
   }
   function paintStatic() {
-    b.fillStyle = C.grass; b.fillRect(0, 0, bg.width, bg.height);
-    b.fillStyle = C.grassStripe;
-    for (let x = 0; x < W; x += 2) b.fillRect(x * CELL, 0, CELL, H * CELL);
-    TILES.forEach(({ ox, oy }) => { b.save(); b.translate(ox * CELL, oy * CELL); paintTile(); b.restore(); });
-    houses.forEach(drawHouse); trees.forEach(drawTree); bushes.forEach(drawBush); boxes.forEach(drawMail);
-    drawFence();
+    blockPics.forEach((pic, v) => {
+      b = pic.getContext('2d');
+      b.fillStyle = C.grass; b.fillRect(0, 0, pic.width, pic.height);
+      b.fillStyle = C.grassStripe;
+      for (let x = 0; x < TW; x += 2) b.fillRect(x * CELL, 0, CELL, TH * CELL);
+      paintTile();
+      const t = v === 4 ? tileThings(HOA_TI, true) : tileThings(v, false);
+      t.houses.forEach(drawHouse); t.trees.forEach(drawTree); t.bushes.forEach(drawBush); t.boxes.forEach(drawMail);
+    });
   }
   function paintTile() {
     strip(6, 6, 33, 9, C.road); strip(6, 16, 33, 19, C.road);
@@ -593,14 +616,37 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
   }
 
-  // trails are painted once, a cell at a time, onto a map-sized canvas; each frame copies the part on screen
-  function paintSegment(r) {
-    const ax = (r.px + 0.5) * CELL, ay = (r.py + 0.5) * CELL, bx = (r.x + 0.5) * CELL, by = (r.y + 0.5) * CELL;
-    tg.lineCap = 'round';
-    tg.save(); tg.strokeStyle = r.color; tg.shadowColor = r.color; tg.shadowBlur = 14; tg.lineWidth = 6;
-    tg.beginPath(); tg.moveTo(ax, ay); tg.lineTo(bx, by); tg.stroke(); tg.restore();
-    tg.save(); tg.strokeStyle = C.ink; tg.globalAlpha = 0.8; tg.lineWidth = 2;
-    tg.beginPath(); tg.moveTo(ax, ay); tg.lineTo(bx, by); tg.stroke(); tg.restore();
+  // trails are drawn each frame from the grid, only the cells on screen: two cells join when the same rider
+  // drove from one to the other (their step numbers differ by one)
+  function drawTrailsInView(camX, camY) {
+    const cx0 = Math.max(0, Math.floor(camX / CELL) - 1), cy0 = Math.max(0, Math.floor(camY / CELL) - 1);
+    const cx1 = Math.min(W - 1, cx0 + VW + 2), cy1 = Math.min(H - 1, cy0 + VH + 2);
+    const segs = new Map();
+    for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) {
+      const i = y * W + x, o = trail[i];
+      if (o < 0) continue;
+      for (const j of [x < W - 1 ? i + 1 : -1, y < H - 1 ? i + W : -1]) {
+        if (j < 0 || trail[j] !== o || Math.abs(stepAt[j] - stepAt[i]) !== 1) continue;
+        if (!segs.has(o)) segs.set(o, []);
+        segs.get(o).push(x, y, j % W, Math.floor(j / W));
+      }
+    }
+    const path = list => {
+      ctx.beginPath();
+      for (let k = 0; k < list.length; k += 4) {
+        ctx.moveTo((list[k] + 0.5) * CELL, (list[k + 1] + 0.5) * CELL);
+        ctx.lineTo((list[k + 2] + 0.5) * CELL, (list[k + 3] + 0.5) * CELL);
+      }
+    };
+    ctx.save(); ctx.lineCap = 'round';
+    segs.forEach((list, o) => {
+      ctx.strokeStyle = riders[o].color;
+      ctx.globalAlpha = 0.3; ctx.lineWidth = 14; path(list); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.lineWidth = 6; path(list); ctx.stroke();
+    });
+    ctx.strokeStyle = C.ink; ctx.globalAlpha = 0.8; ctx.lineWidth = 2;
+    segs.forEach(list => { path(list); ctx.stroke(); });
+    ctx.restore();
   }
   function paintMini() {
     mg.fillStyle = C.bg; mg.fillRect(0, 0, W, H);
@@ -617,9 +663,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const kp = pos(karen);
     const camX = Math.max(0, Math.min(W - VW, kp.x + 0.5 - VW / 2)) * CELL;
     const camY = Math.max(0, Math.min(H - VH, kp.y + 0.5 - VH / 2)) * CELL;
-    ctx.drawImage(bg, camX, camY, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
-    ctx.drawImage(trailCanvas, camX, camY, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+    karenOnScreen = { x: (kp.x + 0.5) * CELL - camX, y: (kp.y + 0.5) * CELL - camY };
     ctx.save(); ctx.translate(-camX, -camY);
+    TILES.forEach(({ ox, oy, v }) => {
+      const px = ox * CELL, py = oy * CELL;
+      if (px + TW * CELL < camX || px > camX + canvas.width || py + TH * CELL < camY || py > camY + canvas.height) return;
+      ctx.drawImage(blockPics[v], px, py);
+    });
+    drawFence(ctx, camX, camY, camX + canvas.width, camY + canvas.height);
+    drawTrailsInView(camX, camY);
     const seen = (x, y) => x * CELL > camX - 60 && x * CELL < camX + canvas.width + 60 && y * CELL > camY - 60 && y * CELL < camY + canvas.height + 60;
     riders.forEach(r => {
       const p = pos(r);
@@ -662,7 +714,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     });
     ctx.restore();
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
-    const MS = 1.5, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
+    const MS = 0.75, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
     ctx.save();
     ctx.globalAlpha = 0.85; ctx.imageSmoothingEnabled = false;
     ctx.drawImage(mini, mx, my, mw, mh);
