@@ -164,7 +164,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.4</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.5</span></p>
 </div>
 
 <script>
@@ -1015,7 +1015,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.fillText('$' + (Math.floor(karen.aliveMs / 50) * 10000).toLocaleString('en-US'), 18, 36);
     ctx.restore();
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
-    const MS = 0.3, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
+    // as wide as the stats row above it
+    const MS = statsRow().total / W, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
     ctx.save();
     ctx.globalAlpha = 0.85; ctx.imageSmoothingEnabled = false;
     ctx.drawImage(mini, mx, my, mw, mh);
@@ -1027,7 +1028,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     drawStats(mx + mw, my - 8);
   }
   // the stats row above the minimap: round time, riders left, coffees held
-  function drawStats(right, bottom) {
+  function statsRow() {
     const secs = Math.floor(roundSteps * TICK / 1000);
     const items = [
       ['clock', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`],
@@ -1035,9 +1036,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       ['cup', String(karen.coffee)]
     ];
     ctx.save();
-    ctx.font = '700 17px "Figtree", system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    ctx.font = '700 17px "Figtree", system-ui, sans-serif';
     const widths = items.map(([, t]) => 24 + ctx.measureText(t).width + 12);
-    const total = widths.reduce((a, c) => a + c, 0) + 8;
+    ctx.restore();
+    return { items, widths, total: widths.reduce((a, c) => a + c, 0) + 8 };
+  }
+  function drawStats(right, bottom) {
+    const { items, widths, total } = statsRow();
+    ctx.save();
+    ctx.font = '700 17px "Figtree", system-ui, sans-serif'; ctx.textBaseline = 'middle';
     let x = right - total;
     const y = bottom - 15;
     ctx.fillStyle = 'rgba(11, 10, 26, 0.72)'; rr(ctx, x, y - 15, total, 30, 8); ctx.fill();
