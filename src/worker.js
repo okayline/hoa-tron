@@ -80,7 +80,8 @@ export class Match extends DurableObject {
     for (let k = Math.floor(this.flushed / CHUNK); k * CHUNK < this.history.length; k++)
       rec['h' + String(k).padStart(4, '0')] = this.history.slice(k * CHUNK, (k + 1) * CHUNK);
     this.flushed = this.history.length - (this.history.length % CHUNK);
-    await this.ctx.storage.put(rec);
+    // allowUnconfirmed: by default the server holds back every message to the riders until a save is confirmed, which made the game jerk each time it saved
+    await this.ctx.storage.put(rec, { allowUnconfirmed: true });
   }
 
   async fetch() {
