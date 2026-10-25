@@ -122,18 +122,13 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .chip.out .nm { text-decoration: line-through; }
 .chip.win { border-color: var(--c); }
 
-.pad {
-  display: none; width: 100%; max-width: 240px; margin: 0 auto;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-areas: ". u ." "l d r";
-  gap: 8px; touch-action: none;
-}
+.pad { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; touch-action: none; }
 .pad button {
-  min-height: 56px; font-size: 22px; color: var(--ink);
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  min-height: 96px; font-size: 40px; color: var(--ink);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  -webkit-tap-highlight-color: transparent;
 }
-.pad .u { grid-area: u; } .pad .l { grid-area: l; } .pad .d { grid-area: d; } .pad .r { grid-area: r; }
-@media (pointer: coarse) { .pad { display: grid; } }
+.pad button:active { background: var(--line); }
 
 .foot { margin: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; font: 500 12px var(--font-mono); color: var(--muted); }
 </style>
@@ -158,13 +153,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
   <div class="pad" id="pad" aria-label="Steering buttons">
-    <button type="button" class="u" data-dir="0" aria-label="Steer up">↑</button>
-    <button type="button" class="l" data-dir="3" aria-label="Steer left">←</button>
-    <button type="button" class="d" data-dir="2" aria-label="Steer down">↓</button>
-    <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
+    <button type="button" data-turn="-1" aria-label="Turn left">&#8630;</button>
+    <button type="button" data-turn="1" aria-label="Turn right">&#8631;</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.6</span></p>
+  <p class="foot"><span>Turn left or right with the two buttons, or the left and right arrow keys (or A and D). Space starts a round.</span><span>v2.7</span></p>
 </div>
 
 <script>
@@ -646,40 +639,19 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     if (online) { if (net) net.send(JSON.stringify({ t: 'turn', d })); lastAsk = d; return; }
     if (karen.turnQ.length < 2) karen.turnQ.push(d);
   }
-  const KEYS = { ArrowUp: 0, w: 0, W: 0, ArrowRight: 1, d: 1, D: 1, ArrowDown: 2, s: 2, S: 2, ArrowLeft: 3, a: 3, A: 3 };
+  // the only controls: turn left or turn right from the way you are heading
+  function turn(side) { queueTurn((heading() + (side < 0 ? 3 : 1)) % 4); }
+  const KEYS = { ArrowLeft: -1, a: -1, A: -1, ArrowRight: 1, d: 1, D: 1 };
   addEventListener('keydown', e => {
-    if (KEYS[e.key] !== undefined) { e.preventDefault(); queueTurn(KEYS[e.key]); return; }
+    if (KEYS[e.key] !== undefined) { e.preventDefault(); turn(KEYS[e.key]); return; }
     if ((e.key === ' ' || e.key === 'Enter') && state !== 'play') {
       if (e.target && e.target.tagName === 'BUTTON') return;
       e.preventDefault(); startRound();
     }
   });
-  const stage = document.getElementById('stage');
-  let sw = null;
-  let karenOnScreen = { x: 0, y: 0 };
-  stage.addEventListener('pointerdown', e => {
-    if (state !== 'play') return;
-    sw = { x: e.clientX, y: e.clientY, swiped: false };
-    // a tap or click steers toward that spot: the side it is further toward, or the other side if that is straight ahead or behind
-    const rect = canvas.getBoundingClientRect();
-    const dx = (e.clientX - rect.left) * canvas.width / rect.width - karenOnScreen.x;
-    const dy = (e.clientY - rect.top) * canvas.height / rect.height - karenOnScreen.y;
-    const h = dx > 0 ? 1 : 3, v = dy > 0 ? 2 : 0;
-    const main = Math.abs(dx) > Math.abs(dy) ? h : v, other = main === h ? v : h;
-    if (main % 2 !== heading() % 2) queueTurn(main);
-    else if (Math.abs(main === h ? dy : dx) > CELL / 2) queueTurn(other);
-  });
-  stage.addEventListener('pointermove', e => {
-    if (!sw || state !== 'play') return;
-    const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 22) return;
-    queueTurn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
-    sw = { x: e.clientX, y: e.clientY };
-  });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => stage.addEventListener(n, () => { sw = null; }));
   document.getElementById('pad').addEventListener('pointerdown', e => {
     const b = e.target.closest('button'); if (!b) return;
-    e.preventDefault(); queueTurn(Number(b.dataset.dir));
+    e.preventDefault(); turn(Number(b.dataset.turn));
   });
 
   // ---------- drawing: static neighborhood ----------
@@ -975,7 +947,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const kp = pos(karen);
     const camX = Math.max(0, Math.min(W - VW, kp.x + 0.5 - VW / 2)) * CELL;
     const camY = Math.max(0, Math.min(H - VH, kp.y + 0.5 - VH / 2)) * CELL;
-    karenOnScreen = { x: (kp.x + 0.5) * CELL - camX, y: (kp.y + 0.5) * CELL - camY };
     ctx.save(); ctx.translate(-camX, -camY);
     for (let ty = Math.floor(camY / (TH * CELL)); ty <= Math.min(TY - 1, Math.floor((camY + canvas.height) / (TH * CELL))); ty++)
       for (let tx = Math.floor(camX / (TW * CELL)); tx <= Math.min(TX - 1, Math.floor((camX + canvas.width) / (TW * CELL))); tx++)
