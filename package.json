@@ -1,0 +1,1 @@
+{ "name": "hoa-wars", "type": "module", "private": true, "scripts": { "dev": "wrangler dev" }, "devDependencies": { "wrangler": "^4" } }

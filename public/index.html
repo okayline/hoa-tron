@@ -164,7 +164,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.14</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.0</span></p>
 </div>
 
 <script>
@@ -330,16 +330,17 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     'Phyllis', 'Bernice', 'Myrtle', 'Hazel', 'Irene', 'Shirley', 'Bunny', 'Opal', 'Wanda'];
   const HAIR = ['#f1eefc', '#c7b2ff', '#e9e9ee', '#d8d0c4'];
   const riders = [];
-  riders.push({ name: 'Karen', color: tok('--karen'), kind: 'karen', hair: '#f5d56b', human: true });
-  for (let i = 1; i < N; i++) {
-    const nm = GRANNY[(i - 1) % GRANNY.length], k = Math.floor((i - 1) / GRANNY.length);
-    riders.push({ name: k ? `${nm} ${k + 1}` : nm, color: `hsl(${(150 + i * 137.508) % 360} 90% 62%)`, kind: 'granny', hair: HAIR[i % 4] });
+  for (let i = 0; i < N; i++) {
+    const nm = GRANNY[i % GRANNY.length], k = Math.floor(i / GRANNY.length);
+    const name = k ? `${nm} ${k + 1}` : nm, color = `hsl(${(150 + i * 137.508) % 360} 90% 62%)`;
+    riders.push({ name, color, baseName: name, baseColor: color, hair: HAIR[i % 4] });
   }
   riders.forEach((r, i) => Object.assign(r, {
     id: i, wins: 0, aliveMs: 0, shownVal: '', alive: true, path: [], turnQ: [],
     sx: 1, sy: 1, sdir: 0, x: 1, y: 1, px: 1, py: 1, dir: 0, boom: null, note: '', seed: 0
   }));
-  const karen = riders[0];
+  // you are always Karen (pink); other real players are Karen 2, Karen 3... in their own colours
+  let me = 0, karen = riders[0], wins = 0;
 
   let state = 'ready'; // ready | play | over
   let acc = 0, lastT = performance.now(), overlayTimer = 0, overlayShownAt = 0;
@@ -388,8 +389,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     riders.forEach((r, i) => { const p = picked[i]; r.sx = p.x; r.sy = p.y; r.sdir = p.d; });
   }
 
-  function reset() {
-    rand = mulberry32((Math.random() * 4294967296) >>> 0);
+  function reset(seed, humans) {
+    rand = mulberry32(seed >>> 0);
+    karen = riders[me];
+    let k = 1;
+    riders.forEach(r => {
+      r.human = humans.includes(r.id);
+      r.name = r === karen ? 'Karen' : r.human ? `Karen ${++k}` : r.baseName;
+      r.color = r === karen ? tok('--karen') : r.baseColor;
+    });
     trail.fill(-1);
     pickStarts();
     paintMini();
@@ -435,8 +443,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     }
     moveOnce(riders.filter(r => r.alive));
     renderChips();
-    const othersAlive = riders.filter(r => !r.human && r.alive).length;
+    const othersAlive = riders.filter(r => r !== karen && r.alive).length;
     if (!karen.alive || othersAlive === 0) finish();
+    if (online && net && stepN % 50 === 0) net.send(JSON.stringify({ t: 'hash', n: stepN, h: boardHash() }));
+  }
+  // a short fingerprint of the board, so the server can tell if two screens drifted apart
+  function boardHash() {
+    let h = 2166136261;
+    for (const r of riders) { h = Math.imul(h ^ (r.alive ? r.x * 1024 + r.y : 0xffff), 16777619); h = Math.imul(h ^ r.coffee, 16777619); }
+    return h >>> 0;
   }
   function moveOnce(movers) {
     const targets = movers.map(r => ({ x: r.x + DIRS[r.dir].x, y: r.y + DIRS[r.dir].y }));
@@ -480,10 +495,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const pick = a => a[Math.floor(Math.random() * a.length)];
   function finish() {
     state = 'over';
-    const othersAlive = riders.filter(r => !r.human && r.alive).length;
+    if (online && net) net.send(JSON.stringify({ t: 'over' }));
+    const othersAlive = riders.filter(r => r !== karen && r.alive).length;
     let title, text;
     if (karen.alive) {
-      karen.wins++;
+      wins++;
       title = 'Karen wins';
       text = pick([
         'The board has been notified. Everyone else is in violation.',
@@ -516,15 +532,56 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     overlay.hidden = false; overlayShownAt = performance.now();
     go.focus({ preventScroll: true });
   }
-  function startRound() {
-    clearTimeout(overlayTimer);
-    reset(); acc = 0; state = 'play';
+  // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
+  let net = null, online = false, stepN = 0, lastAsk = 0, waitTimer = 0;
+  function begin(seed, humans, you) {
+    clearTimeout(overlayTimer); clearInterval(waitTimer);
+    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play';
     overlay.hidden = true;
     renderChips();
   }
-  go.addEventListener('click', startRound);
+  function startRound() {
+    clearTimeout(overlayTimer);
+    if (net) { net.onclose = null; net.close(); net = null; }
+    online = false;
+    let opened = false;
+    try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); } catch (e) { net = null; }
+    // no server here: a round on this screen only, against 99 grannies
+    const solo = () => { net = null; begin((Math.random() * 4294967296) >>> 0, [0], 0); };
+    if (!net) return solo();
+    showOverlay('Finding a street', 'Connecting...', 'Cancel');
+    net.onopen = () => { opened = true; };
+    net.onerror = () => { if (!opened) solo(); };
+    net.onclose = () => {
+      if (!opened) return;
+      net = null; clearInterval(waitTimer);
+      if (state !== 'over') { state = 'over'; online = false; showOverlay('Connection lost', 'The street went quiet.', 'Ride again'); }
+    };
+    net.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.t === 'wait') {
+        const until = performance.now() + m.ms;
+        const show = () => {
+          const sec = Math.max(0, Math.ceil((until - performance.now()) / 1000));
+          showOverlay('Waiting for riders', `${m.n} ${m.n === 1 ? 'rider' : 'riders'} in. Starting in ${sec}s, and grannies fill the empty seats.`, 'Cancel');
+        };
+        clearInterval(waitTimer); show(); waitTimer = setInterval(show, 500);
+      } else if (m.t === 'start') { online = true; begin(m.seed, m.humans, m.you); }
+      else if (m.t === 'step' && online && state === 'play') {
+        m.turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
+        stepN = m.n; step(); acc = 0;
+      } else if (m.t === 'late') { net.onclose = null; net = null; startRound(); }
+    };
+  }
+  function cancelWait() {
+    clearInterval(waitTimer);
+    if (net) { net.onclose = null; net.close(); net = null; }
+    state = 'ready'; showOverlay('Ready to ride', ovIntro, 'Start');
+  }
+  const ovIntro = ovText.textContent;
+  go.addEventListener('click', () => { if (go.textContent === 'Cancel') cancelWait(); else startRound(); });
   document.addEventListener('click', e => {
-    if (state !== 'over' || overlay.hidden) return;
+    if (state !== 'over' || overlay.hidden || go.textContent === 'Cancel') return;
     if (performance.now() - overlayShownAt < 500) return;
     if (e.target.closest && e.target.closest('#pad')) return;
     startRound();
@@ -540,8 +597,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     chipsEl.appendChild(li);
     return { li, meta: li.querySelector('.meta'), val: li.querySelector('.val') };
   }
-  Object.assign(karen, makeChip(karen.color, "Karen's Property Value"));
-  const gChip = makeChip(tok('--gladys'), 'Grannies still riding');
+  const kChip = makeChip(tok('--karen'), "Karen's Property Value");
+  const gChip = makeChip(tok('--gladys'), 'Others still riding');
   // the same iced coffee cup as on the map, small, for Karen's chip
   const CUP_SVG = '<svg class="cup" viewBox="-8 -14 16 24" aria-label="iced coffee"><path d="M-6 -5H6L4 9H-4Z" fill="rgba(236,233,251,0.35)" stroke="#0b0a1a" stroke-width="1.5"/><path d="M-5.4 -1H5.4L4 8H-4Z" fill="#8a5a34"/><rect x="-7" y="-7" width="14" height="3" fill="#ece9fb"/><rect x="1" y="-13" width="2" height="7" fill="#7dff6a"/></svg>';
   function renderChips() {
@@ -550,20 +607,22 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     else if (!karen.alive) status = 'crashed';
     else if (state === 'over') status = 'winner';
     else status = 'riding';
-    karen.meta.textContent = `${status} · ${karen.wins} ${karen.wins === 1 ? 'win' : 'wins'}${karen.coffee && karen.alive ? ' · ' : ''}`;
-    if (karen.alive) karen.meta.insertAdjacentHTML('beforeend', CUP_SVG.repeat(karen.coffee));
-    karen.li.classList.toggle('out', !karen.alive && state !== 'ready');
-    karen.li.classList.toggle('win', karen.alive && state === 'over');
-    const left = riders.filter(r => !r.human && r.alive).length;
+    kChip.meta.textContent = `${status} · ${wins} ${wins === 1 ? 'win' : 'wins'}${karen.coffee && karen.alive ? ' · ' : ''}`;
+    if (karen.alive) kChip.meta.insertAdjacentHTML('beforeend', CUP_SVG.repeat(karen.coffee));
+    kChip.li.classList.toggle('out', !karen.alive && state !== 'ready');
+    kChip.li.classList.toggle('win', karen.alive && state === 'over');
+    const left = riders.filter(r => r !== karen && r.alive).length;
     gChip.val.textContent = `${left} / ${N - 1}`;
     gChip.meta.textContent = state === 'ready' ? 'on the line' : `${N - 1 - left} crashed`;
   }
 
   // ---------- input ----------
+  function heading() { return online ? lastAsk : karen.turnQ.length ? karen.turnQ[karen.turnQ.length - 1] : karen.dir; }
   function queueTurn(d) {
     if (state !== 'play' || !karen.alive) return;
-    const last = karen.turnQ.length ? karen.turnQ[karen.turnQ.length - 1] : karen.dir;
+    const last = heading();
     if (d === last || d === (last + 2) % 4) return;
+    if (online) { if (net) net.send(JSON.stringify({ t: 'turn', d })); lastAsk = d; return; }
     if (karen.turnQ.length < 2) karen.turnQ.push(d);
   }
   const KEYS = { ArrowUp: 0, w: 0, W: 0, ArrowRight: 1, d: 1, D: 1, ArrowDown: 2, s: 2, S: 2, ArrowLeft: 3, a: 3, A: 3 };
@@ -586,8 +645,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const dy = (e.clientY - rect.top) * canvas.height / rect.height - karenOnScreen.y;
     const h = dx > 0 ? 1 : 3, v = dy > 0 ? 2 : 0;
     const main = Math.abs(dx) > Math.abs(dy) ? h : v, other = main === h ? v : h;
-    const heading = karen.turnQ.length ? karen.turnQ[karen.turnQ.length - 1] : karen.dir;
-    if (main % 2 !== heading % 2) queueTurn(main);
+    if (main % 2 !== heading() % 2) queueTurn(main);
     else if (Math.abs(main === h ? dy : dx) > CELL / 2) queueTurn(other);
   });
   stage.addEventListener('pointermove', e => {
@@ -959,10 +1017,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
 
   function updateValues() {
-    [karen].forEach(r => {
-      const txt = '$' + (Math.floor(r.aliveMs / 50) * 10000).toLocaleString('en-US');
-      if (txt !== r.shownVal) { r.val.textContent = txt; r.shownVal = txt; }
-    });
+    const txt = '$' + (Math.floor(karen.aliveMs / 50) * 10000).toLocaleString('en-US');
+    if (txt !== kChip.shown) { kChip.val.textContent = txt; kChip.shown = txt; }
   }
 
   function frame(now) {
@@ -970,7 +1026,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     if (state === 'play') {
       acc += dt;
       riders.forEach(r => { if (r.alive) r.aliveMs += dt; });
-      while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
+      if (online) acc = Math.min(acc, TICK);
+      else while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
     }
     updateValues();
     draw(now);
@@ -978,7 +1035,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
 
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => pics.clear());
-  reset(); renderChips();
+  reset(1, [0]); renderChips();
   requestAnimationFrame(frame);
 })();
 </script>

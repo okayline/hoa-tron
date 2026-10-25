@@ -1,0 +1,16 @@
+{
+  // HOA Wars. The Worker's name must match the one in the Cloudflare dashboard.
+  "name": "hoa-wars",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  // the page (public/); /ws goes to the Worker code first.
+  "assets": { "directory": "public", "binding": "ASSETS", "run_worker_first": ["/ws"] },
+  "durable_objects": {
+    "bindings": [
+      { "name": "LOBBY", "class_name": "Lobby" },
+      { "name": "MATCH", "class_name": "Match" }
+    ]
+  },
+  // the free plan only allows SQLite-backed Durable Objects (neither class stores anything)
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby", "Match"] }]
+}
