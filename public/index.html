@@ -162,7 +162,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with a hundred SUVs leaving glowing trails"></canvas>
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
-        <h2 id="ovTitle">Ready to complain</h2>
+        <h2 id="ovTitle">Ready to complain...</h2>
         <p id="ovText"></p>
         <ol class="lb" id="ovBoard" aria-label="Leaderboard" hidden></ol>
         <button class="go" id="go" type="button">Manager!!!</button>
@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.26</span></p>
+  <p class="foot"><span></span><span>v2.27</span></p>
 </div>
 
 <script>
@@ -461,7 +461,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     renderChips();
     if (me < 0) return;
     const othersAlive = riders.filter(r => r !== karen && r.alive).length;
-    if (!karen.alive || othersAlive === 0) finish();
+    if (state === 'play' && (!karen.alive || othersAlive === 0)) finish();
     if (online && net && stepN % 50 === 0) net.send(JSON.stringify({ t: 'hash', n: stepN, h: boardHash() }));
   }
   // a short fingerprint of the board, so the server can tell if two screens drifted apart
@@ -513,7 +513,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function finish() {
     state = 'over';
     heldVal = riderValue(karen); // the value Karen ended on, kept on screen until she takes over a new granny
-    if (online && net) net.send(JSON.stringify({ t: 'over' }));
+    // you stay connected after a crash, so the window keeps showing the round as it goes on (not after a win: the winner stops where she is)
+    liveOver = online && !!net && !karen.alive;
     const othersAlive = riders.filter(r => r !== karen && r.alive).length;
     let title, text;
     if (karen.alive) {
@@ -537,7 +538,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     }
     renderChips();
     clearTimeout(overlayTimer);
-    overlayTimer = setTimeout(() => showOverlay(title, text, 'Ride again', true), 800);
+    overlayTimer = setTimeout(() => showOverlay(title, text, 'Manager!!!', true), 800);
   }
 
   // ---------- overlay + chips ----------
@@ -558,10 +559,10 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
   // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
   // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
-  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0;
+  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, boardAt = 0;
   function begin(seed, humans, you) {
     clearTimeout(overlayTimer);
-    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play';
+    me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play'; liveOver = false;
     overlay.hidden = true;
     renderChips();
   }
@@ -604,7 +605,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function startRound() {
     clearTimeout(overlayTimer);
     if (net) { net.onclose = null; net.close(); net = null; }
-    online = false; claim = -1;
+    online = false; claim = -1; liveOver = false;
     let opened = false;
     try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' + (playerId() ? '?p=' + playerId() : '')); } catch (e) { net = null; }
     // no server here: a round on this screen only, against 99 grannies
@@ -615,7 +616,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     net.onclose = () => {
       if (!opened) return;
       net = null;
-      if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to complain', ovIntro, 'Manager!!!'); }
+      if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to complain...', ovIntro, 'Manager!!!'); }
     };
     net.onmessage = e => {
       const m = JSON.parse(e.data);
@@ -628,7 +629,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         // a player who has been here before asks for their own granny back first (the server only gives her to them); if she has crashed, any other granny
         if (m.mine !== null && m.mine !== undefined && riders[m.mine] && riders[m.mine].alive) { claim = m.mine; net.send(JSON.stringify({ t: 'claim', seat: m.mine })); }
         else pickGranny();
-      } else if (m.t === 'step' && online && state === 'play') applyStep(m.n, m.turns, m.joins);
+      } else if (m.t === 'step' && online && (state === 'play' || (state === 'over' && liveOver))) applyStep(m.n, m.turns, m.joins);
       // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
       else if (m.t === 'won' && online && state === 'play') {
         me = m.seat; karen = riders[me]; lastAsk = karen.dir; claim = -1;
@@ -1102,7 +1103,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const standings = () => riders.slice().sort((a, b) => (b.human - a.human) || (riderValue(b) - riderValue(a)) || (a.id - b.id));
   const money = r => '$' + riderValue(r).toLocaleString('en-US');
   // the round-over window: all 100 riders, your row highlighted, riders who have crashed dimmed
-  function fillBoard() {
+  function fillBoard(keepScroll) {
+    const was = ovBoard.scrollTop;
     ovBoard.replaceChildren(...standings().slice(0, 100).map((r, i) => {
       const li = document.createElement('li');
       if (r === karen && me >= 0) li.className = 'me'; else if (!r.alive) li.className = 'out';
@@ -1111,7 +1113,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       });
       return li;
     }));
-    ovBoard.scrollTop = 0;
+    ovBoard.scrollTop = keepScroll ? was : 0;
   }
   // in the game: the top 5 in the top left, and your own row under them when you are further down
   function drawBoard() {
@@ -1152,6 +1154,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       else while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
     }
     updateValues();
+    // the round-over window is live: the list is rebuilt twice a second from the round as it goes on
+    if (!overlay.hidden && !ovBoard.hidden && now - boardAt > 500) { boardAt = now; fillBoard(true); }
     draw(now);
     requestAnimationFrame(frame);
   }
