@@ -147,7 +147,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
 
-  <p class="foot"><span></span><span>v2.12</span></p>
+  <p class="foot"><span></span><span>v2.11</span></p>
 </div>
 
 <script>
@@ -549,16 +549,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     let best = -1, run = 2;
     riders.forEach(r => { if (r.alive && !r.human) { const f = freeRun(r.x, r.y, r.dir, 12); if (f > run) { run = f; best = r.id; } } });
     claim = best;
-    clearTimeout(claimTimer);
     net.send(JSON.stringify(best >= 0 ? { t: 'claim', seat: best } : { t: 'none' }));
-    // no answer from the server within 1.5 seconds: ask again, so you never stay stuck watching a granny
-    if (best >= 0) claimTimer = setTimeout(() => { if (online && net && me < 0 && state === 'play') pickGranny(); }, 1500);
   }
-  let claimTimer = 0;
   function startRound() {
     clearTimeout(overlayTimer);
     if (net) { net.onclose = null; net.close(); net = null; }
-    online = false; claim = -1; clearTimeout(claimTimer);
+    online = false; claim = -1;
     let opened = false;
     try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); } catch (e) { net = null; }
     // no server here: a round on this screen only, against 99 grannies
@@ -584,7 +580,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       } else if (m.t === 'step' && online && state === 'play') applyStep(m.n, m.turns, m.joins);
       // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
       else if (m.t === 'won' && online && state === 'play') {
-        clearTimeout(claimTimer);
         me = m.seat; karen = riders[me]; karen.aliveMs = 0; lastAsk = karen.dir; claim = -1;
         nameRiders(); overlay.hidden = true; renderChips();
       } else if (m.t === 'lost' && online && state === 'play') { claim = -1; pickGranny(); }
