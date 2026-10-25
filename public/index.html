@@ -147,7 +147,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
 
-  <p class="foot"><span></span><span>v2.10</span></p>
+  <p class="foot"><span></span><span>v2.11</span></p>
 </div>
 
 <script>
@@ -537,9 +537,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function applyStep(n, turns, joins) {
     joins.forEach(seat => {
       riders[seat].human = true; riders[seat].turnQ = [];
-      if (seat === claim) { me = seat; karen = riders[me]; karen.aliveMs = 0; lastAsk = karen.dir; claim = -1; }
       nameRiders();
-      if (me === seat && !replaying) { overlay.hidden = true; renderChips(); }
     });
     turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
     stepN = n; step(); acc = 0;
@@ -580,6 +578,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         renderChips();
         pickGranny();
       } else if (m.t === 'step' && online && state === 'play') applyStep(m.n, m.turns, m.joins);
+      // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
+      else if (m.t === 'won' && online && state === 'play') {
+        me = m.seat; karen = riders[me]; karen.aliveMs = 0; lastAsk = karen.dir; claim = -1;
+        nameRiders(); overlay.hidden = true; renderChips();
+      } else if (m.t === 'lost' && online && state === 'play') { claim = -1; pickGranny(); }
       else if (m.t === 'late') { net.onclose = null; net = null; setTimeout(startRound, 300); }
     };
   }

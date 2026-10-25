@@ -72,16 +72,27 @@ export class Match extends DurableObject {
   tick() {
     this.n++;
     // takeovers first: a granny seat nobody else holds becomes this rider's
-    const joins = [], taken = new Set(this.seat.values());
+    // a rider who asked for a seat someone else already holds (or got in the same step) is told so and asks again
+    const joins = [], won = [], lost = [], taken = new Set(this.seat.values());
     this.claims.forEach((seat, id) => {
-      if (!taken.has(seat) && this.socks.has(id)) { this.seat.set(id, seat); taken.add(seat); joins.push(seat); }
+      if (!this.socks.has(id)) return;
+      if (!taken.has(seat)) { this.seat.set(id, seat); taken.add(seat); joins.push(seat); won.push([id, seat]); }
+      else lost.push(id);
     });
     this.claims.clear();
     const turns = [];
     this.queue.forEach((q, seat) => { if (q.length) turns.push([seat, q.shift()]); });
     if (joins.length || turns.length) this.history.push([this.n, turns, joins]);
     this.sendAll({ t: 'step', n: this.n, turns, joins });
+    // sent after the step, so each screen has already seated the new rider when it hears who got the seat
+    won.forEach(([id, seat]) => this.sendTo(id, { t: 'won', seat }));
+    lost.forEach(id => this.sendTo(id, { t: 'lost' }));
     if (this.n >= MAX_STEPS) this.end();
+  }
+
+  sendTo(id, m) {
+    const s = this.socks.get(id);
+    try { s && s.send(JSON.stringify(m)); } catch (e) { this.onClose(id); }
   }
 
   onMessage(id, data) {
