@@ -41,6 +41,12 @@
   --mail: #ff5a5a;
   --fence: #e8e4f0;
   --fence-base: #1b1838;
+  --water: #234f9e;
+  --water-hi: #5f8fe0;
+  --asphalt: #1c1a36;
+  --field: #1d5a35;
+  --concrete: #8a8ca6;
+  --brick: #7a4a4a;
 
   --font-display: 'Monoton', 'Impact', sans-serif;
   --font-body: 'Figtree', system-ui, sans-serif;
@@ -157,7 +163,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.10</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.11</span></p>
 </div>
 
 <script>
@@ -175,7 +181,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     lawn: tok('--lawn'), drive: tok('--drive'), hoa: tok('--hoa'), window: tok('--window'),
     leaf: tok('--leaf'), leafHi: tok('--leaf-hi'), mail: tok('--mail'),
     fence: tok('--fence'), fenceBase: tok('--fence-base'),
-    line: tok('--line'), peggy: tok('--peggy'),
+    doris: tok('--doris'), line: tok('--line'), water: tok('--water'), waterHi: tok('--water-hi'), asphalt: tok('--asphalt'),
+    field: tok('--field'), concrete: tok('--concrete'), brick: tok('--brick'), peggy: tok('--peggy'),
     roofs: [tok('--roof-a'), tok('--roof-b'), tok('--roof-c'), tok('--roof-d')]
   };
 
@@ -198,33 +205,124 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   block(0, 0, W, 1, 'fence'); block(0, H - 1, W, 1, 'fence');
   block(0, 0, 1, H, 'fence'); block(W - 1, 0, 1, H, 'fence');
 
-  // one block of the subdivision (the old street), in its own cells; ti picks the roof colours
-  function tileThings(ti, hoa) {
-    const houses = [], trees = [], bushes = [];
-    [3, 12, 22, 31].forEach((x, i) => {
-      houses.push({ x, y: 2, w: 6, h: 3, tone: C.roofs[(i + ti) % 4], face: 'down' });
-      houses.push({ x, y: 21, w: 6, h: 3, tone: C.roofs[(i + ti + 2) % 4], face: 'up' });
-    });
-    houses.push({ x: 2, y: 9, w: 3, h: 6, tone: C.roofs[(ti + 1) % 4], face: 'right' });
-    houses.push({ x: 35, y: 9, w: 3, h: 6, tone: C.roofs[(ti + 3) % 4], face: 'left' });
-    houses.push({ x: 15, y: 11, w: 10, h: 4, tone: hoa ? C.hoa : C.roofs[ti % 4], face: 'down', hoa });
-    [[10, 8], [29, 8], [10, 17], [29, 17], [20, 8], [20, 17], [10, 12], [30, 12]].forEach(([x, y]) => trees.push({ x, y }));
-    [[4, 5], [37, 5], [4, 20], [37, 20]].forEach(([x, y]) => bushes.push({ x, y }));
-    return { houses, trees, bushes };
+  // ---------- the town: every block is made from a fixed map seed, so the map is the same on every screen ----------
+  // gen() returns paint (ground drawn under everything) and things (solid: houses, trees, water...) in the block's own cells
+  function gen(kind, rng) {
+    const P = [], T = [];
+    const R = (a, c) => a + Math.floor(rng() * (c - a + 1));
+    const roof = () => C.roofs[R(0, 3)];
+    const house = (x, y, w, h, face, tone, hoa) => T.push({ k: hoa ? 'hoa' : 'house', x, y, w, h, face, tone: tone || roof(), hoa });
+    const one = (k, x, y) => T.push({ k, x, y, w: 1, h: 1 });
+    const rect = (k, x, y, w, h, more) => T.push(Object.assign({ k, x, y, w, h }, more));
+    const oval = (k, cx, cy, rx, ry) => {
+      const cells = [];
+      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++)
+        if (x >= 0 && y >= 0 && x < TW && y < TH && ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1) cells.push([x, y]);
+      T.push({ k, cx, cy, rx, ry, cells });
+    };
+    const yardTrees = () => { for (let i = R(2, 5); i > 0; i--) one('tree', R(1, 38), rng() < 0.5 ? 0 : 25); };
+    const row = (y, h, face, from, to) => {
+      for (let x = from; x <= to;) {
+        const w = R(4, 6);
+        if (x + w - 1 > to) break;
+        if (rng() < 0.15) one('tree', x + 1, y + 1); else house(x, y, w, h, face);
+        x += w + R(1, 2);
+      }
+    };
+    const cars = (x0, x1, y, p) => { for (let x = x0; x <= x1; x += 2) if (rng() < p) rect('car', x, y, 1, 1, { tone: C.roofs[R(0, 3)] }); };
+    if (kind === 'street' || kind === 'bright') {
+      P.push(paintTile);
+      row(2, 3, 'down', 2, 38); row(21, 3, 'up', 2, 38);
+      if (rng() < 0.8) house(2, 9, 3, 6, 'right'); else one('tree', 3, 12);
+      if (rng() < 0.8) house(35, 9, 3, 6, 'left'); else one('tree', 36, 12);
+      const m = rng();
+      if (m < 0.4) house(15, 11, 10, 4, 'down');
+      else if (m < 0.7) { house(12, 11, 7, 4, 'down'); house(21, 11, 7, 4, 'down'); }
+      else [[13, 12], [16, 11], [19, 13], [22, 11], [25, 12]].forEach(([x, y]) => one('tree', x, y));
+      [[4, 5], [37, 5], [4, 20], [37, 20]].forEach(([x, y]) => one('bush', x, y));
+      if (kind === 'bright') T.forEach(t => { if (t.k === 'house') t.tone = ['#e58fb8', '#7fb4e8', '#f0c75e', '#8fd18a'][R(0, 3)]; });
+      yardTrees();
+    } else if (kind === 'culdesac') {
+      P.push(() => { strip(0, 11, 29, 14, C.road); disc(33.5, 12.5, 5.3, C.road); disc(33.5, 12.5, 1.7, C.lawn); walk(0, 10, 28, 10); walk(0, 15, 28, 15); });
+      for (let x = 2; x <= 23; x += 7) { house(x, 4, 6, 4, 'down'); house(x, 18, 6, 4, 'up'); }
+      house(30, 2, 6, 3, 'down'); house(30, 21, 6, 3, 'up');
+      one('tree', 33, 12);
+      yardTrees();
+    } else if (kind === 'park') {
+      P.push(() => { walk(0, 12, 39, 13); walk(19, 0, 20, 25); });
+      const left = rng() < 0.5, top = rng() < 0.5;
+      oval('pond', left ? 9 : 30, top ? 6 : 19.5, R(4, 6), 3);
+      rect('play', left ? 28 : 8, top ? 18 : 4, 4, 2);
+      for (let i = 0; i < 18; i++) {
+        const x = R(1, 38), y = R(1, 24);
+        if (y === 12 || y === 13 || x === 19 || x === 20) continue;
+        if (Math.abs(x - (left ? 9 : 30)) < 8 && Math.abs(y - (top ? 6 : 19.5)) < 5) continue;
+        one('tree', x, y);
+      }
+    } else if (kind === 'mall') {
+      P.push(() => {
+        lot(1, 8, 38, 23);
+        b.strokeStyle = C.hoa; b.globalAlpha = 0.35; b.lineWidth = 1.5; b.beginPath();
+        for (let x = 2; x <= 38; x += 2) { b.moveTo(x * CELL, 9.6 * CELL); b.lineTo(x * CELL, 11 * CELL); b.moveTo(x * CELL, 20 * CELL); b.lineTo(x * CELL, 21.4 * CELL); }
+        b.stroke(); b.globalAlpha = 1;
+      });
+      rect('shop', 2, 1, 36, 5, { parts: R(3, 5), tone: roof() });
+      cars(3, 37, 10, 0.4); cars(3, 37, 20, 0.4);
+      one('tree', 1, 15); one('tree', 38, 15); one('bush', 20, 15);
+    } else if (kind === 'school') {
+      P.push(() => { lot(9, 10, 17, 21); field(21, 3, 37, 22); });
+      rect('bldg', 2, 2, 16, 6, { tone: C.brick }); rect('bldg', 2, 8, 5, 9, { tone: C.brick });
+      rect('bleach', 19, 7, 1, 12);
+      cars(10, 16, 12, 0.5); cars(10, 16, 18, 0.5);
+      for (let x = 2; x <= 17; x += 3) one('tree', x, 24);
+    } else if (kind === 'hoa') {
+      P.push(() => { walk(0, 5, 39, 5); walk(0, 20, 39, 20); court(2, 8, 10, 17); });
+      house(15, 7, 10, 4, 'down', C.hoa, true);
+      rect('pool', 15, 13, 10, 4);
+      [[13, 8], [26, 8], [13, 15], [26, 15], [31, 10], [34, 14]].forEach(([x, y]) => one('tree', x, y));
+      [[4, 5], [37, 5], [4, 20], [37, 20]].forEach(([x, y]) => one('bush', x, y));
+    } else if (kind === 'plant') {
+      // the edge of town: a power plant with two cooling towers and a fenced lot
+      P.push(() => { lot(19, 16, 37, 23); lot(2, 11, 16, 16); });
+      rect('bldg', 3, 3, 13, 7, { tone: C.concrete, stacks: true });
+      oval('tower', 24, 8, 4, 4); oval('tower', 33.5, 8, 4, 4);
+      rect('chain', 2, 19, 15, 1);
+      [[5, 13], [8, 14], [12, 12]].forEach(([x, y]) => one('barrel', x, y));
+      cars(20, 36, 17, 0.35); cars(20, 36, 22, 0.35);
+    } else if (kind === 'square') {
+      // town square: four streets, a plaza with a statue, big buildings on the corners
+      P.push(() => {
+        strip(0, 6, 39, 9, C.road); strip(0, 16, 39, 19, C.road); strip(6, 0, 9, 25, C.road); strip(30, 0, 33, 25, C.road);
+        lot(11, 10, 28, 15, C.walk);
+      });
+      rect('statue', 19, 12, 2, 2);
+      rect('bldg', 11, 1, 8, 4, { tone: C.concrete, dome: true }); rect('bldg', 21, 1, 7, 4, { tone: C.brick, steeple: true });
+      rect('bldg', 11, 21, 8, 4, { tone: C.roofs[2] }); rect('bldg', 21, 21, 8, 4, { tone: C.roofs[3] });
+      [[1, 1], [35, 1], [1, 21], [35, 21]].forEach(([x, y]) => rect('bldg', x, y, 4, 4, { tone: roof() }));
+      [[12, 10], [27, 10], [12, 15], [27, 15]].forEach(([x, y]) => one('tree', x, y));
+    } else if (kind === 'river') {
+      P.push(() => { strip(0, 11, 39, 14, C.road); strip(17, 11, 22, 14, C.concrete); });
+      rect('water', 17, 0, 6, 11); rect('water', 17, 15, 6, 11);
+      row(2, 4, 'down', 2, 15); row(2, 4, 'down', 24, 38); row(19, 4, 'up', 2, 15); row(19, 4, 'up', 24, 38);
+      [[16, 4], [23, 7], [16, 20], [23, 22]].forEach(([x, y]) => one('tree', x, y));
+    }
+    return { P, T };
   }
-  // the subdivision: that block, 13 by 20, with only the outer fence; one block has the HOA clubhouse
+  // the subdivision: 13 by 20 blocks inside one outer fence; one block is the HOA club, six make the old town
   const HOA_TI = 9 * TX + 6;
+  const OLD_TOWN = { '1,1': 'plant', '2,1': 'square', '3,1': 'school', '1,2': 'river', '2,2': 'bright', '3,2': 'mall' };
+  const mapRand = mulberry32(19891217);
   const TILES = [];
   for (let ty = 0; ty < TY; ty++) for (let tx = 0; tx < TX; tx++) {
-    const ti = TILES.length;
-    TILES.push({ ox: tx * TW, oy: ty * TH, v: ti === HOA_TI ? 4 : ti % 4 });
+    const ti = TILES.length, roll = mapRand();
+    const kind = ti === HOA_TI ? 'hoa' : OLD_TOWN[`${tx},${ty}`] ||
+      (roll < 0.45 ? 'street' : roll < 0.7 ? 'culdesac' : roll < 0.85 ? 'park' : roll < 0.93 ? 'mall' : 'school');
+    TILES.push({ ox: tx * TW, oy: ty * TH, kind, ...gen(kind, mulberry32((mapRand() * 4294967296) >>> 0)) });
   }
-  TILES.forEach(({ ox, oy }, ti) => {
-    const t = tileThings(ti, ti === HOA_TI);
-    t.houses.forEach(h => block(ox + h.x, oy + h.y, h.w, h.h, h.hoa ? 'hoa' : 'house'));
-    t.trees.forEach(p => block(ox + p.x, oy + p.y, 1, 1, 'tree'));
-    t.bushes.forEach(p => block(ox + p.x, oy + p.y, 1, 1, 'bush'));
-  });
+  TILES.forEach(({ ox, oy, T }) => T.forEach(t => {
+    if (t.cells) t.cells.forEach(([x, y]) => block(ox + x, oy + y, 1, 1, t.k));
+    else block(ox + t.x, oy + t.y, t.w, t.h, t.k);
+  }));
 
   // ---------- riders ----------
   const GRANNY = ['Gladys', 'Doris', 'Peggy', 'Mildred', 'Edna', 'Bev', 'Marge', 'Agnes', 'Ethel', 'Dot', 'Lorraine',
@@ -259,7 +357,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function whatIs(x, y, r) {
     if (x < 0 || y < 0 || x >= W || y >= H) return 'the fence';
     const k = kind[y * W + x];
-    if (k) return { fence: 'the fence', house: "a neighbor's house", hoa: 'the HOA clubhouse', tree: 'a tree', bush: 'a bush' }[k];
+    if (k) return { fence: 'the fence', house: "a neighbor's house", hoa: 'the HOA clubhouse', tree: 'a tree', bush: 'a bush',
+      pond: 'the pond', water: 'the river', pool: 'the HOA pool', tower: 'a cooling tower', bldg: 'a building', shop: 'the strip mall',
+      car: 'a parked car', statue: 'the statue', play: 'the playground', bleach: 'the bleachers', chain: 'a chain-link fence', barrel: 'a barrel' }[k];
     const o = trail[y * W + x];
     if (o >= 0) return o === r.id ? `${r.name}'s own trail` : `${riders[o].name}'s trail`;
     return 'something';
@@ -497,9 +597,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   });
 
   // ---------- drawing: static neighborhood ----------
-  // five pictures of one block (four roof colourings and the HOA block), copied wherever a block is on screen
-  const blockPics = [0, 1, 2, 3, 4].map(() => { const c = document.createElement('canvas'); c.width = TW * CELL; c.height = TH * CELL; return c; });
-  let b = blockPics[0].getContext('2d');
+  // each block's picture is painted the first time it comes on screen; the 24 most recent are kept
+  const pics = new Map();
+  let b = null;
   const mini = document.createElement('canvas');
   mini.width = W; mini.height = H;
   const mg = mini.getContext('2d');
@@ -583,16 +683,97 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     }
     b.stroke();
   }
-  function paintStatic() {
-    blockPics.forEach((pic, v) => {
-      b = pic.getContext('2d');
-      b.fillStyle = C.grass; b.fillRect(0, 0, pic.width, pic.height);
-      b.fillStyle = C.grassStripe;
-      for (let x = 0; x < TW; x += 2) b.fillRect(x * CELL, 0, CELL, TH * CELL);
-      paintTile();
-      const t = v === 4 ? tileThings(HOA_TI, true) : tileThings(v, false);
-      t.houses.forEach(drawHouse); t.trees.forEach(drawTree); t.bushes.forEach(drawBush);
-    });
+  function tilePic(ti) {
+    let pic = pics.get(ti);
+    if (pic) { pics.delete(ti); pics.set(ti, pic); return pic; }
+    pic = document.createElement('canvas'); pic.width = TW * CELL; pic.height = TH * CELL;
+    b = pic.getContext('2d');
+    b.fillStyle = C.grass; b.fillRect(0, 0, pic.width, pic.height);
+    b.fillStyle = C.grassStripe;
+    for (let x = 0; x < TW; x += 2) b.fillRect(x * CELL, 0, CELL, TH * CELL);
+    const t = TILES[ti];
+    t.P.forEach(f => f());
+    t.T.forEach(drawThing);
+    pics.set(ti, pic);
+    if (pics.size > 24) pics.delete(pics.keys().next().value);
+    return pic;
+  }
+  function disc(cx, cy, r, color) { b.fillStyle = color; b.beginPath(); b.arc(cx * CELL, cy * CELL, r * CELL, 0, Math.PI * 2); b.fill(); }
+  function lot(x0, y0, x1, y1, color) { b.fillStyle = color || C.asphalt; rr(b, x0 * CELL, y0 * CELL, (x1 - x0 + 1) * CELL, (y1 - y0 + 1) * CELL, 6); b.fill(); }
+  function lines(x0, y0, x1, y1) {
+    b.strokeStyle = C.ink; b.globalAlpha = 0.45; b.lineWidth = 2;
+    b.strokeRect(x0 * CELL + 4, y0 * CELL + 4, (x1 - x0 + 1) * CELL - 8, (y1 - y0 + 1) * CELL - 8);
+    b.beginPath(); b.moveTo(((x0 + x1 + 1) / 2) * CELL, y0 * CELL + 4); b.lineTo(((x0 + x1 + 1) / 2) * CELL, (y1 + 1) * CELL - 4); b.stroke();
+    b.globalAlpha = 1;
+  }
+  function field(x0, y0, x1, y1) {
+    b.fillStyle = C.field; b.fillRect(x0 * CELL, y0 * CELL, (x1 - x0 + 1) * CELL, (y1 - y0 + 1) * CELL);
+    lines(x0, y0, x1, y1);
+    b.strokeStyle = C.ink; b.globalAlpha = 0.45; b.beginPath(); b.arc(((x0 + x1 + 1) / 2) * CELL, ((y0 + y1 + 1) / 2) * CELL, 2.5 * CELL, 0, Math.PI * 2); b.stroke(); b.globalAlpha = 1;
+  }
+  function court(x0, y0, x1, y1) { b.fillStyle = C.roofs[3]; b.fillRect(x0 * CELL, y0 * CELL, (x1 - x0 + 1) * CELL, (y1 - y0 + 1) * CELL); lines(x0, y0, x1, y1); }
+  function water(px, py, pw, ph, round) {
+    b.fillStyle = C.water; rr(b, px, py, pw, ph, round); b.fill();
+    b.strokeStyle = C.waterHi; b.globalAlpha = 0.5; b.lineWidth = 1.5; b.beginPath();
+    for (let y = py + 10; y < py + ph - 6; y += 14) for (let x = px + 8 + (y % 28); x < px + pw - 14; x += 34) { b.moveTo(x, y); b.quadraticCurveTo(x + 4, y - 3, x + 8, y); }
+    b.stroke(); b.globalAlpha = 1;
+  }
+  function flatRoof(t) {
+    const x = t.x * CELL + 2, y = t.y * CELL + 2, w = t.w * CELL - 4, h = t.h * CELL - 4;
+    b.fillStyle = t.tone; rr(b, x, y, w, h, 3); b.fill();
+    b.fillStyle = 'rgba(0, 0, 0, 0.22)'; b.fillRect(x + 6, y + 6, Math.min(18, w / 4), Math.min(12, h / 4));
+    b.strokeStyle = C.ink; b.globalAlpha = 0.18; b.lineWidth = 2; b.strokeRect(x + 4, y + 4, w - 8, h - 8); b.globalAlpha = 1;
+  }
+  function drawThing(t) {
+    const x = (t.x || 0) * CELL, y = (t.y || 0) * CELL, w = (t.w || 0) * CELL, h = (t.h || 0) * CELL;
+    if (t.k === 'house' || t.k === 'hoa') return drawHouse(t);
+    if (t.k === 'tree') return drawTree(t);
+    if (t.k === 'bush') return drawBush(t);
+    if (t.k === 'water') return water(x, y, w, h, 2);
+    if (t.k === 'pond') {
+      b.save(); b.beginPath(); b.ellipse(t.cx * CELL, t.cy * CELL, t.rx * CELL, t.ry * CELL, 0, 0, Math.PI * 2); b.clip();
+      water((t.cx - t.rx) * CELL, (t.cy - t.ry) * CELL, t.rx * 2 * CELL, t.ry * 2 * CELL, 0); b.restore(); return;
+    }
+    if (t.k === 'pool') { b.fillStyle = C.walk; rr(b, x, y, w, h, 4); b.fill(); water(x + 5, y + 5, w - 10, h - 10, 3); return; }
+    if (t.k === 'tower') {
+      const cx = t.cx * CELL, cy = t.cy * CELL, r = t.rx * CELL;
+      b.fillStyle = C.concrete; b.beginPath(); b.arc(cx, cy, r - 2, 0, Math.PI * 2); b.fill();
+      b.fillStyle = 'rgba(0, 0, 0, 0.35)'; b.beginPath(); b.arc(cx, cy, r * 0.62, 0, Math.PI * 2); b.fill();
+      b.fillStyle = C.bg; b.beginPath(); b.arc(cx, cy, r * 0.5, 0, Math.PI * 2); b.fill();
+      b.fillStyle = C.peggy; b.globalAlpha = 0.18; b.beginPath(); b.arc(cx, cy, r * 0.42, 0, Math.PI * 2); b.fill(); b.globalAlpha = 1;
+      return;
+    }
+    if (t.k === 'bldg' || t.k === 'shop') {
+      flatRoof(t);
+      if (t.k === 'shop') {
+        b.strokeStyle = C.bg; b.lineWidth = 2; b.beginPath();
+        for (let i = 1; i < t.parts; i++) { const sx = x + w * i / t.parts; b.moveTo(sx, y + 2); b.lineTo(sx, y + h - 2); }
+        b.stroke();
+        b.fillStyle = C.window; b.globalAlpha = 0.8;
+        for (let i = 0; i < t.parts; i++) b.fillRect(x + w * i / t.parts + 8, y + h - 5, w / t.parts - 16, 3);
+        b.globalAlpha = 1;
+      }
+      if (t.stacks) { b.fillStyle = C.bg; [0.25, 0.5, 0.75].forEach(f => { b.beginPath(); b.arc(x + w * f, y + h * 0.5, 7, 0, Math.PI * 2); b.fill(); }); }
+      if (t.dome) { b.fillStyle = C.hoa; b.globalAlpha = 0.7; b.beginPath(); b.arc(x + w / 2, y + h / 2, Math.min(w, h) * 0.3, 0, Math.PI * 2); b.fill(); b.globalAlpha = 1; }
+      if (t.steeple) { b.fillStyle = C.hoa; b.beginPath(); b.moveTo(x + w / 2, y + 6); b.lineTo(x + w / 2 + 12, y + h / 2); b.lineTo(x + w / 2, y + h - 6); b.lineTo(x + w / 2 - 12, y + h / 2); b.closePath(); b.fill(); }
+      return;
+    }
+    if (t.k === 'car') {
+      b.fillStyle = t.tone; rr(b, x + 6, y + 2, w - 12, h - 4, 3); b.fill();
+      b.fillStyle = 'rgba(0, 0, 0, 0.35)'; b.fillRect(x + 8, y + 7, w - 16, 4); return;
+    }
+    if (t.k === 'statue') {
+      b.fillStyle = C.concrete; rr(b, x + 4, y + 4, w - 8, h - 8, 6); b.fill();
+      b.fillStyle = C.ink; b.globalAlpha = 0.7; b.beginPath(); b.arc(x + w / 2, y + h / 2, 7, 0, Math.PI * 2); b.fill(); b.globalAlpha = 1; return;
+    }
+    if (t.k === 'play') {
+      b.fillStyle = C.lawn; rr(b, x, y, w, h, 5); b.fill();
+      b.strokeStyle = C.doris; b.lineWidth = 3; b.beginPath(); b.moveTo(x + 8, y + h - 6); b.lineTo(x + 8, y + 6); b.lineTo(x + w - 8, y + 6); b.lineTo(x + w - 8, y + h - 6); b.stroke();
+      b.fillStyle = C.mail; b.fillRect(x + w / 2 - 6, y + h / 2, 12, 6); return;
+    }
+    if (t.k === 'bleach') { b.fillStyle = C.concrete; b.fillRect(x + 3, y, w - 6, h); b.fillStyle = C.bg; for (let k = y + 6; k < y + h; k += 8) b.fillRect(x + 3, k, w - 6, 2); return; }
+    if (t.k === 'chain') { b.strokeStyle = C.concrete; b.lineWidth = 2; b.setLineDash([3, 3]); b.beginPath(); b.moveTo(x, y + h / 2); b.lineTo(x + w, y + h / 2); b.stroke(); b.setLineDash([]); return; }
+    if (t.k === 'barrel') { b.fillStyle = C.doris; b.beginPath(); b.arc(x + w / 2, y + h / 2, 7, 0, Math.PI * 2); b.fill(); b.fillStyle = C.peggy; b.beginPath(); b.arc(x + w / 2, y + h / 2, 3.5, 0, Math.PI * 2); b.fill(); }
   }
   function paintTile() {
     strip(6, 6, 33, 9, C.road); strip(6, 16, 33, 19, C.road);
@@ -703,11 +884,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const camY = Math.max(0, Math.min(H - VH, kp.y + 0.5 - VH / 2)) * CELL;
     karenOnScreen = { x: (kp.x + 0.5) * CELL - camX, y: (kp.y + 0.5) * CELL - camY };
     ctx.save(); ctx.translate(-camX, -camY);
-    TILES.forEach(({ ox, oy, v }) => {
-      const px = ox * CELL, py = oy * CELL;
-      if (px + TW * CELL < camX || px > camX + canvas.width || py + TH * CELL < camY || py > camY + canvas.height) return;
-      ctx.drawImage(blockPics[v], px, py);
-    });
+    for (let ty = Math.floor(camY / (TH * CELL)); ty <= Math.min(TY - 1, Math.floor((camY + canvas.height) / (TH * CELL))); ty++)
+      for (let tx = Math.floor(camX / (TW * CELL)); tx <= Math.min(TX - 1, Math.floor((camX + canvas.width) / (TW * CELL))); tx++)
+        ctx.drawImage(tilePic(ty * TX + tx), tx * TW * CELL, ty * TH * CELL);
     drawFence(ctx, camX, camY, camX + canvas.width, camY + canvas.height);
     drawCoffeesInView(camX, camY);
     drawTrailsInView(camX, camY);
@@ -784,8 +963,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     requestAnimationFrame(frame);
   }
 
-  paintStatic();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(paintStatic);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => pics.clear());
   reset(); renderChips();
   requestAnimationFrame(frame);
 })();
