@@ -3,12 +3,9 @@
 // arrives: it picks a random seed and every TICK ms sends everyone that step's turns and takeovers. A rider who joins
 // gets the seed and every step so far, catches up on their own screen, then claims a granny who is still riding; the
 // takeover goes out as part of the next step. The server never runs the game: every screen runs the same round.
-// The round is saved (seed, start time, every turn and takeover) and runs on the clock, so it keeps going when nobody
-// is connected: whoever arrives next gets the saved steps plus the empty steps that passed, and catches up on their screen.
 import { DurableObject } from 'cloudflare:workers';
 
 const TICK = 95, SEATS = 100, MAX_STEPS = 6000; // 6000 steps is about 9.5 minutes
-const CHUNK = 100, SAVE_EVERY = 15000; // saved history goes in pieces of 100 steps; saved at most every 15 s while riders are connected
 
 const lobby = env => env.LOBBY.get(env.LOBBY.idFromName('lobby'));
 
@@ -27,25 +24,13 @@ export default {
 };
 
 export class Lobby extends DurableObject {
-  constructor(ctx, env) {
-    super(ctx, env);
-    // the round now running is saved, so it is still the round after the server has been switched off for a while
-    this.cur = null;
-    ctx.blockConcurrencyWhile(async () => { try { this.cur = (await ctx.storage.get('cur')) || null; } catch (e) { this.cur = null; } });
-  }
-  async place() {
-    if (!this.cur) {
-      this.cur = `m${Date.now()}-${crypto.getRandomValues(new Uint32Array(1))[0]}`;
-      await this.ctx.storage.put('cur', this.cur);
-    }
+  // the round now running; kept in memory only (if the Lobby restarts, the next rider just opens a new round)
+  place() {
+    if (!this.cur) this.cur = `m${Date.now()}-${crypto.getRandomValues(new Uint32Array(1))[0]}`;
     return this.cur;
   }
   // a round that ended or is full: the next rider gets a new one
-  async release(name) {
-    if (this.cur !== name) return;
-    this.cur = null;
-    await this.ctx.storage.delete('cur');
-  }
+  release(name) { if (this.cur === name) this.cur = null; }
 }
 
 export class Match extends DurableObject {
@@ -53,56 +38,23 @@ export class Match extends DurableObject {
     super(ctx, env);
     this.socks = new Map(); this.seat = new Map(); this.claims = new Map(); this.queue = new Map();
     this.phase = 'new'; this.n = 0; this.history = []; this.overs = new Set(); this.hashes = new Map();
-    this.taken = new Set(); this.released = false; this.timer = null;
-    this.dirty = false; this.lastSave = 0; this.flushed = 0;
-    // after the server has been switched off for a while, pick the round up again from what was saved
-    ctx.blockConcurrencyWhile(async () => { try { await this.load(); } catch (e) { console.warn('HOA Wars: could not load the saved round', e); } });
   }
 
   setName(name) { this.name = name; }
 
-  async load() {
-    const meta = await this.ctx.storage.get('meta');
-    if (!meta) return;
-    this.seed = meta.seed; this.startedAt = meta.startedAt; this.n = meta.n; this.name = meta.name; this.released = meta.released;
-    const parts = await this.ctx.storage.list({ prefix: 'h' });
-    this.history = [].concat(...parts.values());
-    this.taken = new Set(this.history.flatMap(h => h[2]));
-    this.flushed = this.history.length - (this.history.length % CHUNK);
-    this.phase = 'play';
-  }
-
-  // the seed, the start time and every turn and takeover so far; only the last piece of history is written again
-  async save() {
-    if (this.phase !== 'play') return;
-    this.dirty = false; this.lastSave = Date.now();
-    const rec = { meta: { seed: this.seed, startedAt: this.startedAt, n: this.n, name: this.name, released: this.released } };
-    for (let k = Math.floor(this.flushed / CHUNK); k * CHUNK < this.history.length; k++)
-      rec['h' + String(k).padStart(4, '0')] = this.history.slice(k * CHUNK, (k + 1) * CHUNK);
-    this.flushed = this.history.length - (this.history.length % CHUNK);
-    // allowUnconfirmed: by default the server holds back every message to the riders until a save is confirmed, which made the game jerk each time it saved
-    await this.ctx.storage.put(rec, { allowUnconfirmed: true });
-  }
-
   async fetch() {
     const [client, server] = Object.values(new WebSocketPair());
     server.accept();
-    // a round nobody was connected to: the clock kept running, so the empty steps that passed count
-    if (this.phase === 'play' && !this.socks.size) this.n = Math.max(this.n, Math.floor((Date.now() - this.startedAt) / TICK));
-    if (this.phase === 'play' && this.n >= MAX_STEPS) await this.end();
-    if (this.phase === 'done' || this.taken.size >= SEATS) {
-      this.release();
-      if (this.phase !== 'done' && !this.socks.size) await this.end();
+    if (this.phase === 'done' || this.seat.size >= SEATS) {
+      if (this.phase !== 'done') this.release();
       server.send(JSON.stringify({ t: 'late' })); server.close(1000, 'late');
       return new Response(null, { status: 101, webSocket: client });
     }
     if (this.phase === 'new') {
       this.phase = 'play';
       this.seed = crypto.getRandomValues(new Uint32Array(1))[0];
-      this.startedAt = Date.now();
-      await this.save();
+      this.timer = setInterval(() => this.tick(), TICK);
     }
-    if (!this.timer) this.timer = setInterval(() => this.tick(), TICK);
     const id = crypto.randomUUID();
     this.socks.set(id, server);
     server.addEventListener('message', e => this.onMessage(id, e.data));
@@ -121,7 +73,7 @@ export class Match extends DurableObject {
     this.n++;
     // takeovers first: a granny seat nobody else holds becomes this rider's
     // a rider who asked for a seat someone else already holds (or got in the same step) is told so and asks again
-    const joins = [], won = [], lost = [], taken = this.taken;
+    const joins = [], won = [], lost = [], taken = new Set(this.seat.values());
     this.claims.forEach((seat, id) => {
       if (!this.socks.has(id)) return;
       if (!taken.has(seat)) { this.seat.set(id, seat); taken.add(seat); joins.push(seat); won.push([id, seat]); }
@@ -130,13 +82,12 @@ export class Match extends DurableObject {
     this.claims.clear();
     const turns = [];
     this.queue.forEach((q, seat) => { if (q.length) turns.push([seat, q.shift()]); });
-    if (joins.length || turns.length) { this.history.push([this.n, turns, joins]); this.dirty = true; }
+    if (joins.length || turns.length) this.history.push([this.n, turns, joins]);
     this.sendAll({ t: 'step', n: this.n, turns, joins });
     // sent after the step, so each screen has already seated the new rider when it hears who got the seat
     won.forEach(([id, seat]) => this.sendTo(id, { t: 'won', seat }));
     lost.forEach(id => this.sendTo(id, { t: 'lost' }));
     if (this.n >= MAX_STEPS) this.end();
-    else if (this.dirty && Date.now() - this.lastSave > SAVE_EVERY) this.save().catch(() => {});
   }
 
   sendTo(id, m) {
@@ -167,38 +118,25 @@ export class Match extends DurableObject {
     const s = this.socks.get(id);
     this.socks.delete(id); this.claims.delete(id);
     try { s && s.send(JSON.stringify({ t: why })); s && s.close(1000, why); } catch (e) {}
-    if (!this.socks.size) this.empty();
+    if (!this.socks.size) this.end();
   }
 
   onClose(id) {
     if (!this.socks.has(id)) return;
     this.socks.delete(id); this.claims.delete(id);
-    if (!this.socks.size) this.empty();
+    if (!this.socks.size) this.end();
   }
 
-  // the last rider left: the round is not over, it keeps running on the clock; save it and stop the ticking until someone comes back
-  // (a round the lobby has already moved on from is cleared away instead)
-  empty() {
-    if (this.phase !== 'play') return;
-    if (this.released) { this.end(); return; }
-    clearInterval(this.timer); this.timer = null;
-    this.save().catch(() => {});
-  }
+  release() { if (this.name) lobby(this.env).release(this.name).catch(() => {}); }
 
-  release() {
-    this.released = true;
-    if (this.name) lobby(this.env).release(this.name).catch(() => {});
-  }
-
-  // the round ends at MAX_STEPS, or when the lobby has moved on and the last rider has left; its saved data is cleared away
-  async end() {
+  // the round ends when nobody is left watching it, or at MAX_STEPS
+  end() {
     if (this.phase === 'done') return;
     this.phase = 'done';
-    clearInterval(this.timer); this.timer = null;
+    clearInterval(this.timer);
     this.release();
     this.sendAll({ t: 'end' });
     this.socks.forEach(s => { try { s.close(1000, 'round over'); } catch (e) {} });
     this.socks.clear();
-    try { await this.ctx.storage.deleteAll(); } catch (e) {}
   }
 }
