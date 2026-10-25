@@ -137,11 +137,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   </header>
 
   <div class="stage" id="stage">
-    <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with four SUVs leaving glowing trails"></canvas>
+    <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with a hundred SUVs leaving glowing trails"></canvas>
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
         <h2 id="ovTitle">Ready to ride</h2>
-        <p id="ovText">Karen is the pink SUV. Three grannies share the street. Don't touch a trail, a house, a mailbox or the fence.</p>
+        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. Don't touch a trail, a house, a mailbox or the fence.</p>
         <button class="go" id="go" type="button">Start</button>
       </div>
     </div>
@@ -156,12 +156,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or swipe the board. Space starts a round.</span><span>v1.1</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or swipe the board. Space starts a round.</span><span>v1.2</span></p>
 </div>
 
 <script>
 (() => {
-  const W = 40, H = 26, CELL = 24, TICK = 95;
+  const VW = 40, VH = 26, TW = 40, TH = 26, W = TW * 4, H = TH * 4, CELL = 24, TICK = 95, N = 100;
+  // a small seeded random, so the same seed and the same turns give the same round on every screen
+  const mulberry32 = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  let rand = mulberry32(1);
   const DIRS = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }]; // 0 up, 1 right, 2 down, 3 left
   const cs = getComputedStyle(document.documentElement);
   const tok = n => cs.getPropertyValue(n).trim();
@@ -171,17 +174,18 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     lawn: tok('--lawn'), drive: tok('--drive'), hoa: tok('--hoa'), window: tok('--window'),
     leaf: tok('--leaf'), leafHi: tok('--leaf-hi'), mail: tok('--mail'),
     fence: tok('--fence'), fenceBase: tok('--fence-base'),
+    line: tok('--line'),
     roofs: [tok('--roof-a'), tok('--roof-b'), tok('--roof-c'), tok('--roof-d')]
   };
 
   const canvas = document.getElementById('board');
   const ctx = canvas.getContext('2d');
-  canvas.width = W * CELL; canvas.height = H * CELL;
+  canvas.width = VW * CELL; canvas.height = VH * CELL;
 
   // ---------- map ----------
   const solid = new Uint8Array(W * H);
   const kind = new Array(W * H).fill('');
-  const trail = new Int8Array(W * H).fill(-1);
+  const trail = new Int16Array(W * H).fill(-1);
   const houses = [], trees = [], boxes = [], bushes = [];
 
   function block(x, y, w, h, k) {
@@ -194,35 +198,44 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   block(0, 0, W, 1, 'fence'); block(0, H - 1, W, 1, 'fence');
   block(0, 0, 1, H, 'fence'); block(W - 1, 0, 1, H, 'fence');
 
-  [3, 12, 22, 31].forEach((x, i) => {
-    addHouse(x, 2, 6, 3, C.roofs[i % 4], 'down');
-    addHouse(x, 21, 6, 3, C.roofs[(i + 2) % 4], 'up');
-  });
-  addHouse(2, 9, 3, 6, C.roofs[1], 'right');
-  addHouse(35, 9, 3, 6, C.roofs[3], 'left');
-  addHouse(15, 11, 10, 4, C.hoa, 'down', true);
-
-  [[10, 8], [29, 8], [10, 17], [29, 17], [20, 8], [20, 17], [10, 12], [30, 12]].forEach(([x, y]) => {
-    block(x, y, 1, 1, 'tree'); trees.push({ x, y });
-  });
-  [[6, 5], [15, 5], [25, 5], [34, 5], [6, 20], [15, 20], [25, 20], [34, 20]].forEach(([x, y]) => {
-    block(x, y, 1, 1, 'mail'); boxes.push({ x, y });
-  });
-  [[4, 5], [9, 5], [12, 5], [18, 5], [22, 5], [28, 5], [31, 5], [37, 5],
-   [4, 20], [9, 20], [12, 20], [18, 20], [22, 20], [28, 20], [31, 20], [37, 20],
-   [14, 11], [14, 14], [25, 11], [25, 14], [8, 10], [8, 15], [32, 10], [32, 15]].forEach(([x, y]) => {
-    block(x, y, 1, 1, 'bush'); bushes.push({ x, y });
+  // the subdivision: the old street, 4 by 4, with only the outer fence
+  const TILES = [];
+  for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++) TILES.push({ ox: tx * TW, oy: ty * TH });
+  TILES.forEach(({ ox, oy }, ti) => {
+    [3, 12, 22, 31].forEach((x, i) => {
+      addHouse(ox + x, oy + 2, 6, 3, C.roofs[(i + ti) % 4], 'down');
+      addHouse(ox + x, oy + 21, 6, 3, C.roofs[(i + ti + 2) % 4], 'up');
+    });
+    addHouse(ox + 2, oy + 9, 3, 6, C.roofs[(ti + 1) % 4], 'right');
+    addHouse(ox + 35, oy + 9, 3, 6, C.roofs[(ti + 3) % 4], 'left');
+    const hoa = ti === 5;
+    addHouse(ox + 15, oy + 11, 10, 4, hoa ? C.hoa : C.roofs[ti % 4], 'down', hoa);
+    [[10, 8], [29, 8], [10, 17], [29, 17], [20, 8], [20, 17], [10, 12], [30, 12]].forEach(([x, y]) => {
+      block(ox + x, oy + y, 1, 1, 'tree'); trees.push({ x: ox + x, y: oy + y });
+    });
+    [[6, 5], [15, 5], [25, 5], [34, 5], [6, 20], [15, 20], [25, 20], [34, 20]].forEach(([x, y]) => {
+      block(ox + x, oy + y, 1, 1, 'mail'); boxes.push({ x: ox + x, y: oy + y });
+    });
+    [[4, 5], [9, 5], [12, 5], [18, 5], [22, 5], [28, 5], [31, 5], [37, 5],
+     [4, 20], [9, 20], [12, 20], [18, 20], [22, 20], [28, 20], [31, 20], [37, 20],
+     [14, 11], [14, 14], [25, 11], [25, 14], [8, 10], [8, 15], [32, 10], [32, 15]].forEach(([x, y]) => {
+      block(ox + x, oy + y, 1, 1, 'bush'); bushes.push({ x: ox + x, y: oy + y });
+    });
   });
 
   // ---------- riders ----------
-  const riders = [
-    { name: 'Karen', col: '--karen', kind: 'karen', hair: '#f5d56b', sx: 8, sy: 7, sdir: 1, human: true },
-    { name: 'Gladys', col: '--gladys', kind: 'granny', hair: '#f1eefc', sx: 31, sy: 18, sdir: 3 },
-    { name: 'Doris', col: '--doris', kind: 'granny', hair: '#c7b2ff', sx: 33, sy: 7, sdir: 2 },
-    { name: 'Peggy', col: '--peggy', kind: 'granny', hair: '#e9e9ee', sx: 6, sy: 18, sdir: 0 }
-  ].map((r, i) => ({
-    ...r, id: i, color: tok(r.col), wins: 0, aliveMs: 0, shownVal: '', alive: true, path: [], turnQ: [],
-    x: r.sx, y: r.sy, px: r.sx, py: r.sy, dir: r.sdir, boom: null, note: '', seed: Math.random() * 6
+  const GRANNY = ['Gladys', 'Doris', 'Peggy', 'Mildred', 'Edna', 'Bev', 'Marge', 'Agnes', 'Ethel', 'Dot', 'Lorraine',
+    'Phyllis', 'Bernice', 'Myrtle', 'Hazel', 'Irene', 'Shirley', 'Bunny', 'Opal', 'Wanda'];
+  const HAIR = ['#f1eefc', '#c7b2ff', '#e9e9ee', '#d8d0c4'];
+  const riders = [];
+  riders.push({ name: 'Karen', color: tok('--karen'), kind: 'karen', hair: '#f5d56b', human: true });
+  for (let i = 1; i < N; i++) {
+    const nm = GRANNY[(i - 1) % GRANNY.length], k = Math.floor((i - 1) / GRANNY.length);
+    riders.push({ name: k ? `${nm} ${k + 1}` : nm, color: `hsl(${(150 + i * 137.508) % 360} 90% 62%)`, kind: 'granny', hair: HAIR[i % 4] });
+  }
+  riders.forEach((r, i) => Object.assign(r, {
+    id: i, wins: 0, aliveMs: 0, shownVal: '', alive: true, path: [], turnQ: [],
+    sx: 1, sy: 1, sdir: 0, x: 1, y: 1, px: 1, py: 1, dir: 0, boom: null, note: '', seed: 0
   }));
   const karen = riders[0];
 
@@ -249,13 +262,40 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     return 'something';
   }
 
+  // spread-out starts: open cells with a long clear run ahead, at least 5 cells from each other
+  function pickStarts() {
+    const cand = [];
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      if (solid[y * W + x]) continue;
+      let best = -1, bs = 5;
+      for (let d = 0; d < 4; d++) { const f = freeRun(x, y, d, 10); if (f > bs) { bs = f; best = d; } }
+      if (best >= 0) cand.push({ x, y, d: best });
+    }
+    for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [cand[i], cand[j]] = [cand[j], cand[i]]; }
+    let gap = 5, picked = [];
+    while (picked.length < N && gap >= 1) {
+      picked = [];
+      for (const c of cand) {
+        if (picked.every(p => Math.max(Math.abs(p.x - c.x), Math.abs(p.y - c.y)) >= gap)) picked.push(c);
+        if (picked.length === N) break;
+      }
+      gap--;
+    }
+    riders.forEach((r, i) => { const p = picked[i]; r.sx = p.x; r.sy = p.y; r.sdir = p.d; });
+  }
+
   function reset() {
+    rand = mulberry32((Math.random() * 4294967296) >>> 0);
     trail.fill(-1);
+    pickStarts();
+    tg.clearRect(0, 0, trailCanvas.width, trailCanvas.height);
+    paintMini();
     riders.forEach(r => {
       r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
-      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0;
+      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6;
       r.path = [{ x: r.x, y: r.y }];
       trail[r.y * W + r.x] = r.id;
+      miniDot(r);
     });
   }
 
@@ -265,13 +305,13 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const l = (r.dir + 3) % 4, rt = (r.dir + 1) % 4;
     const fl = freeRun(r.x, r.y, l, 12), fr = freeRun(r.x, r.y, rt, 12);
     if (ahead >= 3) {
-      if (Math.random() < 0.03) {
+      if (rand() < 0.03) {
         const best = fl > fr ? { d: l, s: fl } : { d: rt, s: fr };
         if (best.s >= 5) r.dir = best.d;
       }
       return;
     }
-    const opts = [{ d: r.dir, s: ahead + Math.random() }, { d: l, s: fl + Math.random() }, { d: rt, s: fr + Math.random() }];
+    const opts = [{ d: r.dir, s: ahead + rand() }, { d: l, s: fl + rand() }, { d: rt, s: fr + rand() }];
     opts.sort((a, b) => b.s - a.s);
     r.dir = opts[0].d;
   }
@@ -286,13 +326,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const targets = riders.map(r => r.alive ? { x: r.x + DIRS[r.dir].x, y: r.y + DIRS[r.dir].y } : null);
     const dead = new Set(), reason = {};
     riders.forEach((r, i) => { const t = targets[i]; if (t && blocked(t.x, t.y)) dead.add(i); });
-    for (let i = 0; i < riders.length; i++) for (let j = i + 1; j < riders.length; j++) {
-      const a = targets[i], b = targets[j];
-      if (a && b && a.x === b.x && a.y === b.y) {
-        dead.add(i); dead.add(j);
-        reason[i] = `a head-on with ${riders[j].name}`; reason[j] = `a head-on with ${riders[i].name}`;
-      }
-    }
+    const at = new Map();
+    targets.forEach((t, i) => { if (t) { const k = t.y * W + t.x; if (at.has(k)) at.get(k).push(i); else at.set(k, [i]); } });
+    at.forEach(ids => {
+      if (ids.length < 2) return;
+      ids.forEach(i => { dead.add(i); reason[i] = `a head-on with ${riders[ids.find(j => j !== i)].name}`; });
+    });
     const now = performance.now();
     riders.forEach((r, i) => {
       const t = targets[i]; if (!t) return;
@@ -303,6 +342,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         r.note = `${r.name} crashed into ${reason[i] || whatIs(t.x, t.y, r)}.`;
       } else {
         r.x = t.x; r.y = t.y; trail[r.y * W + r.x] = r.id; r.path.push({ x: r.x, y: r.y });
+        paintSegment(r); miniDot(r);
       }
     });
     if (dead.size) renderChips();
@@ -364,26 +404,29 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   });
 
   const chipsEl = document.getElementById('chips');
-  riders.forEach(r => {
+  function makeChip(color, name) {
     const li = document.createElement('li');
     li.className = 'chip';
-    li.style.setProperty('--c', r.color);
+    li.style.setProperty('--c', color);
     li.innerHTML = '<span class="dot"></span><span class="nm"></span><span class="meta"></span><span class="val"></span>';
-    li.querySelector('.nm').textContent = `${r.name}'s Property Value`;
-    r.li = li; r.meta = li.querySelector('.meta'); r.val = li.querySelector('.val');
+    li.querySelector('.nm').textContent = name;
     chipsEl.appendChild(li);
-  });
+    return { li, meta: li.querySelector('.meta'), val: li.querySelector('.val') };
+  }
+  Object.assign(karen, makeChip(karen.color, "Karen's Property Value"));
+  const gChip = makeChip(tok('--gladys'), 'Grannies still riding');
   function renderChips() {
-    riders.forEach(r => {
-      let status;
-      if (state === 'ready') status = 'on the line';
-      else if (!r.alive) status = 'crashed';
-      else if (state === 'over') status = r.human ? 'winner' : 'still riding';
-      else status = 'riding';
-      r.meta.textContent = r.human ? `${status} · ${r.wins} ${r.wins === 1 ? 'win' : 'wins'}` : status;
-      r.li.classList.toggle('out', !r.alive && state !== 'ready');
-      r.li.classList.toggle('win', r.human && r.alive && state === 'over');
-    });
+    let status;
+    if (state === 'ready') status = 'on the line';
+    else if (!karen.alive) status = 'crashed';
+    else if (state === 'over') status = 'winner';
+    else status = 'riding';
+    karen.meta.textContent = `${status} · ${karen.wins} ${karen.wins === 1 ? 'win' : 'wins'}`;
+    karen.li.classList.toggle('out', !karen.alive && state !== 'ready');
+    karen.li.classList.toggle('win', karen.alive && state === 'over');
+    const left = riders.filter(r => !r.human && r.alive).length;
+    gChip.val.textContent = `${left} / ${N - 1}`;
+    gChip.meta.textContent = state === 'ready' ? 'on the line' : `${N - 1 - left} crashed`;
   }
 
   // ---------- input ----------
@@ -421,6 +464,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const bg = document.createElement('canvas');
   bg.width = W * CELL; bg.height = H * CELL;
   const b = bg.getContext('2d');
+  const trailCanvas = document.createElement('canvas');
+  trailCanvas.width = W * CELL; trailCanvas.height = H * CELL;
+  const tg = trailCanvas.getContext('2d');
+  const mini = document.createElement('canvas');
+  mini.width = W; mini.height = H;
+  const mg = mini.getContext('2d');
 
   function rr(g, x, y, w, h, r) {
     g.beginPath();
@@ -501,9 +550,14 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     b.fillStyle = C.grass; b.fillRect(0, 0, bg.width, bg.height);
     b.fillStyle = C.grassStripe;
     for (let x = 0; x < W; x += 2) b.fillRect(x * CELL, 0, CELL, H * CELL);
+    TILES.forEach(({ ox, oy }) => { b.save(); b.translate(ox * CELL, oy * CELL); paintTile(); b.restore(); });
+    houses.forEach(drawHouse); trees.forEach(drawTree); bushes.forEach(drawBush); boxes.forEach(drawMail);
+    drawFence();
+  }
+  function paintTile() {
     strip(6, 6, 33, 9, C.road); strip(6, 16, 33, 19, C.road);
     strip(6, 10, 9, 15, C.road); strip(30, 10, 33, 15, C.road);
-    walk(1, 5, 38, 5); walk(1, 20, 38, 20);
+    walk(0, 5, 39, 5); walk(0, 20, 39, 20);
     walk(5, 6, 5, 19); walk(34, 6, 34, 19);
     walk(10, 10, 29, 10); walk(10, 15, 29, 15);
     walk(10, 11, 10, 14); walk(29, 11, 29, 14);
@@ -513,8 +567,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     b.moveTo(8 * CELL, 10 * CELL); b.lineTo(8 * CELL, 16 * CELL);
     b.moveTo(32 * CELL, 10 * CELL); b.lineTo(32 * CELL, 16 * CELL);
     b.stroke(); b.restore();
-    houses.forEach(drawHouse); trees.forEach(drawTree); bushes.forEach(drawBush); boxes.forEach(drawMail);
-    drawFence();
   }
 
   // ---------- drawing: bikes, trails, effects ----------
@@ -541,55 +593,55 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
   }
 
-  function drawTrails(t) {
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    riders.forEach(r => {
-      const pts = r.path;
-      if (pts.length < 2) return;
-      const moving = r.alive && state === 'play';
-      const ex = moving ? lerp(r.px, r.x, t) : r.x, ey = moving ? lerp(r.py, r.y, t) : r.y;
-      const trace = () => {
-        ctx.beginPath();
-        ctx.moveTo((pts[0].x + 0.5) * CELL, (pts[0].y + 0.5) * CELL);
-        for (let k = 1; k < pts.length; k++) {
-          if (k === pts.length - 1 && moving) ctx.lineTo((ex + 0.5) * CELL, (ey + 0.5) * CELL);
-          else ctx.lineTo((pts[k].x + 0.5) * CELL, (pts[k].y + 0.5) * CELL);
-        }
-      };
-      ctx.save();
-      ctx.strokeStyle = r.color; ctx.shadowColor = r.color; ctx.shadowBlur = 14; ctx.lineWidth = 6;
-      trace(); ctx.stroke();
-      ctx.restore();
-      ctx.save();
-      ctx.strokeStyle = C.ink; ctx.globalAlpha = 0.8; ctx.lineWidth = 2;
-      trace(); ctx.stroke();
-      ctx.restore();
-    });
+  // trails are painted once, a cell at a time, onto a map-sized canvas; each frame copies the part on screen
+  function paintSegment(r) {
+    const ax = (r.px + 0.5) * CELL, ay = (r.py + 0.5) * CELL, bx = (r.x + 0.5) * CELL, by = (r.y + 0.5) * CELL;
+    tg.lineCap = 'round';
+    tg.save(); tg.strokeStyle = r.color; tg.shadowColor = r.color; tg.shadowBlur = 14; tg.lineWidth = 6;
+    tg.beginPath(); tg.moveTo(ax, ay); tg.lineTo(bx, by); tg.stroke(); tg.restore();
+    tg.save(); tg.strokeStyle = C.ink; tg.globalAlpha = 0.8; tg.lineWidth = 2;
+    tg.beginPath(); tg.moveTo(ax, ay); tg.lineTo(bx, by); tg.stroke(); tg.restore();
   }
+  function paintMini() {
+    mg.fillStyle = C.bg; mg.fillRect(0, 0, W, H);
+    mg.fillStyle = C.line;
+    for (let i = 0; i < W * H; i++) if (solid[i]) mg.fillRect(i % W, Math.floor(i / W), 1, 1);
+  }
+  function miniDot(r) { mg.fillStyle = r.color; mg.fillRect(r.x, r.y, 1, 1); }
 
   function draw(now) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(bg, 0, 0);
     const t = state === 'play' ? Math.min(acc / TICK, 1) : 1;
-    drawTrails(t);
+    const pos = r => (r.alive && state === 'play') ? { x: lerp(r.px, r.x, t), y: lerp(r.py, r.y, t) } : { x: r.x, y: r.y };
+    // camera: Karen in the middle, held inside the fence
+    const kp = pos(karen);
+    const camX = Math.max(0, Math.min(W - VW, kp.x + 0.5 - VW / 2)) * CELL;
+    const camY = Math.max(0, Math.min(H - VH, kp.y + 0.5 - VH / 2)) * CELL;
+    ctx.drawImage(bg, camX, camY, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(trailCanvas, camX, camY, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+    ctx.save(); ctx.translate(-camX, -camY);
+    const seen = (x, y) => x * CELL > camX - 60 && x * CELL < camX + canvas.width + 60 && y * CELL > camY - 60 && y * CELL < camY + canvas.height + 60;
     riders.forEach(r => {
-      const moving = r.alive && state === 'play';
-      const x = moving ? lerp(r.px, r.x, t) : r.x, y = moving ? lerp(r.py, r.y, t) : r.y;
-      drawSuv(r, (x + 0.5) * CELL, (y + 0.5) * CELL);
+      const p = pos(r);
+      if (!seen(p.x, p.y)) return;
+      if (r.alive && state === 'play') {
+        // the last bit of trail, from the cell left behind to where the SUV is now
+        ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = r.color; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.moveTo((r.px + 0.5) * CELL, (r.py + 0.5) * CELL); ctx.lineTo((p.x + 0.5) * CELL, (p.y + 0.5) * CELL); ctx.stroke();
+        ctx.restore();
+      }
+      drawSuv(r, (p.x + 0.5) * CELL, (p.y + 0.5) * CELL);
     });
-    ctx.save();
     ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = C.bg;
     riders.forEach(r => {
       if (!r.alive) return;
-      const moving = state === 'play';
-      const t2 = moving ? Math.min(acc / TICK, 1) : 1;
-      const x = moving ? lerp(r.px, r.x, t2) : r.x, y = moving ? lerp(r.py, r.y, t2) : r.y;
-      const tx = (x + 0.5) * CELL, ty = (y + 0.5) * CELL - 28;
+      const p = pos(r);
+      if (!seen(p.x, p.y)) return;
+      const tx = (p.x + 0.5) * CELL, ty = (p.y + 0.5) * CELL - 28;
       ctx.strokeText(r.name, tx, ty); ctx.fillStyle = r.color; ctx.fillText(r.name, tx, ty);
     });
-    ctx.restore();
     riders.forEach(r => {
       if (!r.boom) return;
       const age = now - r.boom.t0;
@@ -608,10 +660,21 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       }
       ctx.restore();
     });
+    ctx.restore();
+    // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
+    const MS = 1.5, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
+    ctx.save();
+    ctx.globalAlpha = 0.85; ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(mini, mx, my, mw, mh);
+    ctx.globalAlpha = 1; ctx.strokeStyle = C.ink; ctx.lineWidth = 1;
+    ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
+    ctx.strokeRect(mx + camX / CELL * MS, my + camY / CELL * MS, VW * MS, VH * MS);
+    ctx.fillStyle = karen.color; ctx.beginPath(); ctx.arc(mx + (kp.x + 0.5) * MS, my + (kp.y + 0.5) * MS, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
   function updateValues() {
-    riders.forEach(r => {
+    [karen].forEach(r => {
       const txt = '$' + (Math.floor(r.aliveMs / 50) * 10000).toLocaleString('en-US');
       if (txt !== r.shownVal) { r.val.textContent = txt; r.shownVal = txt; }
     });
