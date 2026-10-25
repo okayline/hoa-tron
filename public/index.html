@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.35</span></p>
+  <p class="foot"><span></span><span>v2.36</span></p>
 </div>
 
 <script>
@@ -552,7 +552,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
   function autoReload() {
     clearTimeout(reloadTimer);
-    reloadTimer = setTimeout(() => { if (state === 'over') startRound(); }, 0);
+    // after 3 new rounds in a row that started by themselves with no key press or tap from you, it waits for the button (a tab left open does not keep a round running on the server all day)
+    reloadTimer = setTimeout(() => { if (state === 'over' && idleRounds < 3) { idleRounds++; startRound(); } }, 0);
   }
 
   // ---------- overlay + chips ----------
@@ -573,7 +574,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
   // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
   // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
-  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, ending = false, reloadTimer = 0;
+  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, ending = false, reloadTimer = 0, idleRounds = 0;
   function begin(seed, humans, you) {
     clearTimeout(overlayTimer);
     me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play'; liveOver = false; ending = false;
@@ -718,6 +719,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       e.preventDefault(); startRound();
     }
   });
+  // any key press or tap counts as you being here
+  ['keydown', 'pointerdown'].forEach(ev => addEventListener(ev, () => { idleRounds = 0; }, true));
   // tap or click the left half of the board to turn left, the right half to turn right
   const stage = document.getElementById('stage');
   stage.addEventListener('pointerdown', e => {
