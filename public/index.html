@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.42</span></p>
+  <p class="foot"><span></span><span>v2.43</span></p>
 </div>
 
 <script>
@@ -650,7 +650,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         // a player who has been here before asks for their own granny back first (the server only gives her to them); if she has crashed, any other granny
         if (m.mine !== null && m.mine !== undefined && riders[m.mine] && riders[m.mine].alive) { claim = m.mine; net.send(JSON.stringify({ t: 'claim', seat: m.mine })); }
         else pickGranny();
-      } else if (m.t === 'step' || m.t === 'won' || m.t === 'lost') inbox.push(m); // played out on a steady clock in frame()
+      } else if (m.t === 'step' || m.t === 'won' || m.t === 'lost') { inbox.push(m); if (m.t === 'step') dbgNet(); } // played out on a steady clock in frame()
       else if (m.t === 'end') inbox.length = 0;
       else if (m.t === 'late') { net.onclose = null; net = null; setTimeout(startRound, 300); }
     };
@@ -1253,12 +1253,40 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     clock += dt * rate;
     if (clock >= TICK) {
       if (playOne()) { clock -= TICK; if (clock > TICK) clock = TICK; }
-      else { buffering = true; clock = 0; }
+      else { buffering = true; clock = 0; if (DBG) DBG.dry++; }
     }
     if (state === 'over' && !liveOver) { inbox.length = 0; buffering = true; }
     acc = buffering ? TICK : Math.min(clock, TICK);
   }
+  // ?debug in the address: a small meter in the corner, to tell network hiccups from drawing hiccups
+  const DBG = /[?&]debug/.test(location.search) ? { el: null, t0: performance.now(), frames: 0, slow: 0, worstGap: 0, work: 0, msgs: 0, netGap: 0, lastMsg: 0, dry: 0 } : null;
+  function dbgNet() {
+    if (!DBG) return;
+    const t = performance.now();
+    if (DBG.lastMsg) DBG.netGap = Math.max(DBG.netGap, t - DBG.lastMsg);
+    DBG.lastMsg = t; DBG.msgs++;
+  }
+  function dbgFrame(gap, work) {
+    if (!DBG) return;
+    if (!DBG.el) {
+      DBG.el = document.createElement('pre');
+      DBG.el.style.cssText = 'position:fixed;top:4px;right:4px;z-index:99;margin:0;padding:6px 8px;background:rgba(0,0,0,.8);color:#7dff6a;font:12px/1.35 ui-monospace,monospace;border-radius:6px;pointer-events:none';
+      document.body.appendChild(DBG.el);
+    }
+    DBG.frames++; if (gap > 34) DBG.slow++;
+    DBG.worstGap = Math.max(DBG.worstGap, gap); DBG.work = Math.max(DBG.work, work);
+    const t = performance.now();
+    if (t - DBG.t0 < 3000) return;
+    const sec = (t - DBG.t0) / 1000;
+    DBG.el.textContent =
+      `SCREEN ${Math.round(DBG.frames / sec)} fps, ${DBG.slow} slow frames\n` +
+      `  longest frame gap ${Math.round(DBG.worstGap)} ms, game work ${DBG.work.toFixed(1)} ms\n` +
+      `NETWORK ${(DBG.msgs / sec).toFixed(1)} steps/s (want 10.5)\n` +
+      `  longest wait ${Math.round(DBG.netGap)} ms, ran dry ${DBG.dry}x, queued ${stepsQueued()}`;
+    Object.assign(DBG, { t0: t, frames: 0, slow: 0, worstGap: 0, work: 0, msgs: 0, netGap: 0, dry: 0 });
+  }
   function frame(now) {
+    const w0 = performance.now(), gap = now - lastT;
     const dt = Math.min(now - lastT, 100); lastT = now;
     if (state === 'play') {
       acc += dt;
@@ -1267,6 +1295,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     if (online) playInbox(dt);
     updateValues();
     draw(now);
+    dbgFrame(gap, performance.now() - w0);
     requestAnimationFrame(frame);
   }
 
