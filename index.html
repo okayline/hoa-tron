@@ -141,7 +141,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
         <h2 id="ovTitle">Ready to ride</h2>
-        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. Iced coffee makes you go twice as fast for a bit. Don't touch a trail, a house, a mailbox or the fence.</p>
+        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. An iced coffee lets you survive one hit. Don't touch a trail, a house, a mailbox or the fence.</p>
         <button class="go" id="go" type="button">Start</button>
       </div>
     </div>
@@ -156,7 +156,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.7</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.8</span></p>
 </div>
 
 <script>
@@ -186,8 +186,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const solid = new Uint8Array(W * H);
   const kind = new Array(W * H).fill('');
   const trail = new Int16Array(W * H).fill(-1);
-  // iced coffee: COFFEES cups on open cells; one makes a rider go two cells a step for BOOST steps
-  const COFFEES = 120, BOOST = 30;
+  // iced coffee: COFFEES cups on open cells; holding one saves a rider from one hit (not a head-on)
+  const COFFEES = 120;
   const coffee = new Uint8Array(W * H);
   const stepAt = new Int32Array(W * H);
 
@@ -295,7 +295,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     paintMini();
     riders.forEach(r => {
       r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
-      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6; r.boost = 0;
+      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0; r.seed = rand() * 6; r.coffee = false;
       r.path = [{ x: r.x, y: r.y }];
       trail[r.y * W + r.x] = r.id; stepAt[r.y * W + r.x] = 0;
       miniDot(r);
@@ -334,11 +334,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       r.px = r.x; r.py = r.y;
     }
     moveOnce(riders.filter(r => r.alive));
-    // boosted riders go one more cell in the same step (bots look again first)
-    const fast = riders.filter(r => r.alive && r.boost > 0);
-    fast.forEach(r => { if (!r.human) ai(r); });
-    if (fast.length) moveOnce(fast);
-    riders.forEach(r => { if (r.boost > 0) r.boost--; });
     renderChips();
     const othersAlive = riders.filter(r => !r.human && r.alive).length;
     if (!karen.alive || othersAlive === 0) finish();
@@ -346,9 +341,18 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   function moveOnce(movers) {
     const targets = movers.map(r => ({ x: r.x + DIRS[r.dir].x, y: r.y + DIRS[r.dir].y }));
     const dead = new Set(), reason = {};
-    movers.forEach((r, i) => { const t = targets[i]; if (blocked(t.x, t.y)) dead.add(i); });
+    const saved = new Set();
+    movers.forEach((r, i) => {
+      const t = targets[i];
+      if (!blocked(t.x, t.y)) return;
+      // the coffee takes the hit: stay put this step and turn to the side with more room
+      const l = (r.dir + 3) % 4, rt = (r.dir + 1) % 4;
+      const fl = freeRun(r.x, r.y, l, 12), fr = freeRun(r.x, r.y, rt, 12);
+      if (r.coffee && (fl > 0 || fr > 0)) { r.coffee = false; r.dir = fl >= fr ? l : rt; r.turnQ.length = 0; saved.add(i); }
+      else dead.add(i);
+    });
     const at = new Map();
-    targets.forEach((t, i) => { const k = t.y * W + t.x; if (at.has(k)) at.get(k).push(i); else at.set(k, [i]); });
+    targets.forEach((t, i) => { if (saved.has(i)) return; const k = t.y * W + t.x; if (at.has(k)) at.get(k).push(i); else at.set(k, [i]); });
     at.forEach(ids => {
       if (ids.length < 2) return;
       ids.forEach(i => { dead.add(i); reason[i] = `a head-on with ${movers[ids.find(j => j !== i)].name}`; });
@@ -356,6 +360,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     const now = performance.now();
     movers.forEach((r, i) => {
       const t = targets[i];
+      if (saved.has(i)) return;
       if (dead.has(i)) {
         r.alive = false;
         r.boom = { x: (t.x + 0.5) * CELL, y: (t.y + 0.5) * CELL, t0: now };
@@ -363,7 +368,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       } else {
         r.x = t.x; r.y = t.y; const c = r.y * W + r.x;
         trail[c] = r.id; stepAt[c] = r.path.length; r.path.push({ x: r.x, y: r.y });
-        if (coffee[c]) { coffee[c] = 0; r.boost = BOOST; }
+        if (coffee[c] && !r.coffee) { coffee[c] = 0; r.coffee = true; }
         miniDot(r);
       }
     });
@@ -440,7 +445,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     else if (!karen.alive) status = 'crashed';
     else if (state === 'over') status = 'winner';
     else status = 'riding';
-    karen.meta.textContent = `${status} · ${karen.wins} ${karen.wins === 1 ? 'win' : 'wins'}${karen.boost > 0 && karen.alive ? ' · iced coffee!' : ''}`;
+    karen.meta.textContent = `${status} · ${karen.wins} ${karen.wins === 1 ? 'win' : 'wins'}${karen.coffee && karen.alive ? ' · ☕ iced coffee' : ''}`;
     karen.li.classList.toggle('out', !karen.alive && state !== 'ready');
     karen.li.classList.toggle('win', karen.alive && state === 'over');
     const left = riders.filter(r => !r.human && r.alive).length;
