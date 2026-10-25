@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.33</span></p>
+  <p class="foot"><span></span><span>v2.34</span></p>
 </div>
 
 <script>
@@ -407,7 +407,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   function reset(seed, humans) {
     newsAt = -1e9;
-    boardRows = new Map(); boardOrder = '';
     rand = mulberry32(seed >>> 0); roundSteps = 0;
     karen = riders[Math.max(me, 0)];
     riders.forEach(r => { r.human = humans.includes(r.id); });
@@ -574,7 +573,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
   // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
   // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
-  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, boardAt = 0, ending = false, reloadTimer = 0;
+  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false, heldVal = 0, liveOver = false, ending = false, reloadTimer = 0;
   function begin(seed, humans, you) {
     clearTimeout(overlayTimer);
     me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play'; liveOver = false; ending = false;
@@ -1122,30 +1121,22 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const standings = () => riders.slice().sort((a, b) => (riderValue(b) - riderValue(a)) || (a.id - b.id));
   const money = r => '$' + riderValue(r).toLocaleString('en-US');
   // the round-over window: all 100 riders, your row highlighted, riders who have crashed dimmed
-  // the rows are made once per round and only their text changes (and their order, when it does): rebuilding all 100 rows twice a second made the game stutter
-  let boardRows = new Map(), boardOrder = '';
-  function fillBoard(keepScroll) {
-    const was = ovBoard.scrollTop, list = standings().slice(0, 100);
-    list.forEach((r, i) => {
-      let e = boardRows.get(r.id);
-      if (!e) {
-        e = { li: document.createElement('li'), t: {} };
-        ['lbr', 'lbn', 'lbv'].forEach(c => { const sp = document.createElement('span'); sp.className = c; e.t[c] = sp; e.li.appendChild(sp); });
-        boardRows.set(r.id, e);
-      }
-      const cls = r === karen && me >= 0 ? 'me' : !r.alive ? 'out' : '';
-      if (e.li.className !== cls) e.li.className = cls;
-      [['lbr', String(i + 1)], ['lbn', r.name], ['lbv', money(r)]].forEach(([c, t]) => { if (e.t[c].textContent !== t) e.t[c].textContent = t; });
-    });
-    const order = list.map(r => r.id).join(',');
-    if (order !== boardOrder) { boardOrder = order; ovBoard.replaceChildren(...list.map(r => boardRows.get(r.id).li)); }
-    ovBoard.scrollTop = keepScroll ? was : 0;
+  function fillBoard() {
+    ovBoard.replaceChildren(...standings().slice(0, 100).map((r, i) => {
+      const li = document.createElement('li');
+      if (r === karen && me >= 0) li.className = 'me'; else if (!r.alive) li.className = 'out';
+      [['lbr', String(i + 1)], ['lbn', r.name], ['lbv', money(r)]].forEach(([c, t]) => {
+        const sp = document.createElement('span'); sp.className = c; sp.textContent = t; li.appendChild(sp);
+      });
+      return li;
+    }));
+    ovBoard.scrollTop = 0;
   }
   // in the game: the top 5 in the top left, and your own row under them when you are further down
-  // the HOA Newsletter only changes every 2 seconds (or at once when you take over a granny or a new round starts); in between, the same rows are drawn
+  // the HOA Newsletter is worked out when a round starts or someone takes over a granny, and is not updated after that
   let newsRows = null, newsAt = -1e9;
   function drawBoard(now) {
-    if (!newsRows || now - newsAt > 2000) {
+    if (!newsRows || newsAt < 0) {
       newsAt = now;
       const all = standings(), mine = me >= 0 ? all.indexOf(karen) : -1;
       newsRows = all.slice(0, 5).map((r, i) => [i + 1, r]);
@@ -1187,8 +1178,6 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       else while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
     }
     updateValues();
-    // the round-over window is live: the list is refreshed every 5 seconds from the round as it goes on
-    if (!overlay.hidden && !ovBoard.hidden && now - boardAt > 5000) { boardAt = now; fillBoard(true); }
     draw(now);
     requestAnimationFrame(frame);
   }
