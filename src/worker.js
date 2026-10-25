@@ -54,6 +54,7 @@ export class Match extends DurableObject {
     this.socks = new Map(); this.seat = new Map(); this.claims = new Map(); this.queue = new Map();
     this.phase = 'new'; this.n = 0; this.history = []; this.overs = new Set(); this.hashes = new Map();
     this.taken = new Set(); this.released = false; this.timer = null;
+    this.owners = new Map(); this.pid = new Map(); // which seat each remembered player took (saved), and which player each connection is
     this.dirty = false; this.lastSave = 0; this.flushed = 0;
     // after the server has been switched off for a while, pick the round up again from what was saved
     ctx.blockConcurrencyWhile(async () => { try { await this.load(); } catch (e) { console.warn('HOA Wars: could not load the saved round', e); } });
@@ -65,6 +66,7 @@ export class Match extends DurableObject {
     const meta = await this.ctx.storage.get('meta');
     if (!meta) return;
     this.seed = meta.seed; this.startedAt = meta.startedAt; this.n = meta.n; this.name = meta.name; this.released = meta.released;
+    this.owners = new Map(Object.entries(meta.owners || {}));
     const parts = await this.ctx.storage.list({ prefix: 'h' });
     this.history = [].concat(...parts.values());
     this.taken = new Set(this.history.flatMap(h => h[2]));
@@ -76,7 +78,7 @@ export class Match extends DurableObject {
   async save() {
     if (this.phase !== 'play') return;
     this.dirty = false; this.lastSave = Date.now();
-    const rec = { meta: { seed: this.seed, startedAt: this.startedAt, n: this.n, name: this.name, released: this.released } };
+    const rec = { meta: { seed: this.seed, startedAt: this.startedAt, n: this.n, name: this.name, released: this.released, owners: Object.fromEntries(this.owners) } };
     for (let k = Math.floor(this.flushed / CHUNK); k * CHUNK < this.history.length; k++)
       rec['h' + String(k).padStart(4, '0')] = this.history.slice(k * CHUNK, (k + 1) * CHUNK);
     this.flushed = this.history.length - (this.history.length % CHUNK);
@@ -84,7 +86,9 @@ export class Match extends DurableObject {
     await this.ctx.storage.put(rec, { allowUnconfirmed: true });
   }
 
-  async fetch() {
+  async fetch(req) {
+    // the player's id (kept in a cookie on their device) is how a returning player is recognised
+    const pid = new URL(req.url).searchParams.get('p');
     const [client, server] = Object.values(new WebSocketPair());
     server.accept();
     // a round nobody was connected to: the clock kept running, so the empty steps that passed count
@@ -105,10 +109,12 @@ export class Match extends DurableObject {
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK);
     const id = crypto.randomUUID();
     this.socks.set(id, server);
+    if (pid && /^[\w-]{8,64}$/.test(pid)) this.pid.set(id, pid);
     server.addEventListener('message', e => this.onMessage(id, e.data));
     server.addEventListener('close', () => this.onClose(id));
     server.addEventListener('error', () => this.onClose(id));
-    server.send(JSON.stringify({ t: 'start', seed: this.seed, n: this.n, history: this.history }));
+    const mine = this.owners.get(this.pid.get(id)); // the granny this player took before, if they took one in this round
+    server.send(JSON.stringify({ t: 'start', seed: this.seed, n: this.n, history: this.history, mine: mine === undefined ? null : mine }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -124,7 +130,12 @@ export class Match extends DurableObject {
     const joins = [], won = [], lost = [], taken = this.taken;
     this.claims.forEach((seat, id) => {
       if (!this.socks.has(id)) return;
-      if (!taken.has(seat)) { this.seat.set(id, seat); taken.add(seat); joins.push(seat); won.push([id, seat]); }
+      const pid = this.pid.get(id);
+      if (pid && this.owners.get(pid) === seat) {
+        // a returning player gets their own granny back: no new takeover, just this connection steering her (an older connection of theirs stops)
+        this.seat.forEach((s, other) => { if (s === seat && other !== id) this.seat.delete(other); });
+        this.seat.set(id, seat); won.push([id, seat]);
+      } else if (!taken.has(seat)) { this.seat.set(id, seat); taken.add(seat); joins.push(seat); won.push([id, seat]); if (pid) { this.owners.set(pid, seat); this.dirty = true; } }
       else lost.push(id);
     });
     this.claims.clear();
@@ -165,14 +176,14 @@ export class Match extends DurableObject {
 
   drop(id, why) {
     const s = this.socks.get(id);
-    this.socks.delete(id); this.claims.delete(id);
+    this.socks.delete(id); this.claims.delete(id); this.pid.delete(id);
     try { s && s.send(JSON.stringify({ t: why })); s && s.close(1000, why); } catch (e) {}
     if (!this.socks.size) this.empty();
   }
 
   onClose(id) {
     if (!this.socks.has(id)) return;
-    this.socks.delete(id); this.claims.delete(id);
+    this.socks.delete(id); this.claims.delete(id); this.pid.delete(id);
     if (!this.socks.size) this.empty();
   }
 

@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.24</span></p>
+  <p class="foot"><span></span><span>v2.25</span></p>
 </div>
 
 <script>
@@ -591,12 +591,22 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     claim = best;
     net.send(JSON.stringify(best >= 0 ? { t: 'claim', seat: best } : { t: 'none' }));
   }
+  // the player's id lives in a cookie on their device: it is how the server knows them when they come back
+  function playerId() {
+    try {
+      const got = document.cookie.match(/(?:^|; )hoa_id=([\w-]+)/);
+      if (got) return got[1];
+      const id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/[^\w-]/g, '');
+      document.cookie = `hoa_id=${id}; max-age=31536000; path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
+      return id;
+    } catch (e) { return ''; }
+  }
   function startRound() {
     clearTimeout(overlayTimer);
     if (net) { net.onclose = null; net.close(); net = null; }
     online = false; claim = -1;
     let opened = false;
-    try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); } catch (e) { net = null; }
+    try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' + (playerId() ? '?p=' + playerId() : '')); } catch (e) { net = null; }
     // no server here: a round on this screen only, against 99 grannies
     const solo = () => { net = null; begin((Math.random() * 4294967296) >>> 0, [0], 0); };
     if (!net) return solo();
@@ -615,7 +625,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
         for (let n = 1; n <= m.n; n++) { const h = at.get(n); applyStep(n, h ? h[1] : [], h ? h[2] : []); }
         replaying = false;
         renderChips();
-        pickGranny();
+        // a player who has been here before asks for their own granny back first (the server only gives her to them); if she has crashed, any other granny
+        if (m.mine !== null && m.mine !== undefined && riders[m.mine] && riders[m.mine].alive) { claim = m.mine; net.send(JSON.stringify({ t: 'claim', seat: m.mine })); }
+        else pickGranny();
       } else if (m.t === 'step' && online && state === 'play') applyStep(m.n, m.turns, m.joins);
       // the server says who got the seat: only then are you that rider (two riders can ask for the same granny at once)
       else if (m.t === 'won' && online && state === 'play') {
