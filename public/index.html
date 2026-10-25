@@ -90,8 +90,15 @@ h1 {
 }
 canvas { display: block; width: 100%; height: 100%; }
 /* a phone held upright: a tall game screen that shows fewer cells, so everything is bigger (the view size is set in fitView) */
-@media (max-width: 720px) and (orientation: portrait) { .stage { aspect-ratio: 20 / 28; } }
+@media (max-width: 720px) and (orientation: portrait) {
+  .stage { aspect-ratio: 20 / 36; }
+  /* the rider boxes sit on the bottom of the game screen, see-through */
+  .play { position: relative; }
+  .wrap .chips { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wrap .chip { background: color-mix(in srgb, var(--panel) 22%, transparent); border-color: rgba(255, 255, 255, 0.14); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); }
+}
 .overlay {
+  z-index: 2;
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
@@ -150,6 +157,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <h1>HOA Wars</h1>
   </header>
 
+  <div class="play">
   <div class="stage" id="stage">
     <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with a hundred SUVs leaving glowing trails"></canvas>
     <div class="overlay" id="overlay" aria-live="polite">
@@ -163,9 +171,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   </div>
 
   <ul class="chips" id="chips" aria-label="Riders"></ul>
+  </div>
 
-
-  <p class="foot"><span></span><span>v2.21</span></p>
+  <p class="foot"><span></span><span>v2.22</span></p>
 </div>
 
 <script>
@@ -192,8 +200,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const canvas = document.getElementById('board');
   const ctx = canvas.getContext('2d');
   const upright = matchMedia('(max-width: 720px) and (orientation: portrait)');
-  function fitView() { VW = upright.matches ? 20 : 40; VH = upright.matches ? 28 : 26; canvas.width = VW * CELL; canvas.height = VH * CELL; }
+  function fitView() { VW = upright.matches ? 20 : 40; VH = upright.matches ? 36 : 26; canvas.width = VW * CELL; canvas.height = VH * CELL; }
   fitView(); upright.addEventListener('change', fitView);
+  // upright phone: the rider boxes cover the bottom of the game screen, so the minimap sits above them (in canvas units)
+  let chipPad = 0;
+  function fitChips() { const c = document.getElementById('chips'); chipPad = upright.matches && canvas.clientWidth ? (c.offsetHeight + 10) * canvas.width / canvas.clientWidth : 0; }
+  new ResizeObserver(fitChips).observe(document.getElementById('chips')); new ResizeObserver(fitChips).observe(canvas); upright.addEventListener('change', fitChips);
 
   // ---------- map ----------
   const solid = new Uint8Array(W * H);
@@ -1023,9 +1035,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
     // as wide as the stats row above it
     // on a phone held upright the whole corner (minimap and stats row) is drawn smaller, shrinking towards the bottom right corner
-    const k = upright.matches ? 0.7 : 1, cx = canvas.width - 10, cy = canvas.height - 10;
+    const k = upright.matches ? 0.7 : 1, cx = canvas.width - 10, cy = canvas.height - 10 - chipPad;
     ctx.save(); ctx.translate(cx, cy); ctx.scale(k, k); ctx.translate(-cx, -cy);
-    const MS = statsRow().total / W, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
+    const MS = statsRow().total / W, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10 - chipPad;
     ctx.save();
     ctx.globalAlpha = 0.85; ctx.imageSmoothingEnabled = false;
     ctx.drawImage(mini, mx, my, mw, mh);
@@ -1097,10 +1109,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     if (gap) rows.push([mine + 1, karen]);
     const X = 14, Y = 10, W = 236, RH = 21, P = 8, H = P * 2 + 18 + rows.length * RH + (gap ? 6 : 0);
     ctx.save();
+    if (upright.matches) ctx.scale(0.78, 0.78); // smaller panel on an upright phone
     ctx.fillStyle = 'rgba(11, 10, 26, 0.72)'; rr(ctx, X, Y, W, H, 8); ctx.fill();
     ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
     ctx.font = '700 12px "Figtree", system-ui, sans-serif'; ctx.fillStyle = '#b9b5dd';
-    ctx.fillText('LEADERBOARD', X + P, Y + P + 7);
+    ctx.fillText('HOA NEWSLETTER', X + P, Y + P + 7);
     ctx.font = '600 14px "Figtree", system-ui, sans-serif';
     rows.forEach(([rank, r], i) => {
       const y = Y + P + 18 + i * RH + RH / 2 + (gap && i === rows.length - 1 ? 6 : 0);
