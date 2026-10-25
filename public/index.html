@@ -165,7 +165,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
 
-  <p class="foot"><span></span><span>v2.20</span></p>
+  <p class="foot"><span></span><span>v2.21</span></p>
 </div>
 
 <script>
@@ -1022,6 +1022,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     drawBoard(); // the leaderboard in the top left
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
     // as wide as the stats row above it
+    // on a phone held upright the whole corner (minimap and stats row) is drawn smaller, shrinking towards the bottom right corner
+    const k = upright.matches ? 0.7 : 1, cx = canvas.width - 10, cy = canvas.height - 10;
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(k, k); ctx.translate(-cx, -cy);
     const MS = statsRow().total / W, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
     ctx.save();
     ctx.globalAlpha = 0.85; ctx.imageSmoothingEnabled = false;
@@ -1032,6 +1035,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.fillStyle = karen.color; ctx.beginPath(); ctx.arc(mx + (kp.x + 0.5) * MS, my + (kp.y + 0.5) * MS, 3, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     drawStats(mx + mw, my - 8);
+    ctx.restore();
   }
   // the stats row above the minimap: round time, riders left, coffees held
   function statsRow() {
