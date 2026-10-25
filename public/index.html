@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.31</span></p>
+  <p class="foot"><span></span><span>v2.33</span></p>
 </div>
 
 <script>
@@ -407,6 +407,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   function reset(seed, humans) {
     newsAt = -1e9;
+    boardRows = new Map(); boardOrder = '';
     rand = mulberry32(seed >>> 0); roundSteps = 0;
     karen = riders[Math.max(me, 0)];
     riders.forEach(r => { r.human = humans.includes(r.id); });
@@ -1121,16 +1122,23 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const standings = () => riders.slice().sort((a, b) => (riderValue(b) - riderValue(a)) || (a.id - b.id));
   const money = r => '$' + riderValue(r).toLocaleString('en-US');
   // the round-over window: all 100 riders, your row highlighted, riders who have crashed dimmed
+  // the rows are made once per round and only their text changes (and their order, when it does): rebuilding all 100 rows twice a second made the game stutter
+  let boardRows = new Map(), boardOrder = '';
   function fillBoard(keepScroll) {
-    const was = ovBoard.scrollTop;
-    ovBoard.replaceChildren(...standings().slice(0, 100).map((r, i) => {
-      const li = document.createElement('li');
-      if (r === karen && me >= 0) li.className = 'me'; else if (!r.alive) li.className = 'out';
-      [['lbr', String(i + 1)], ['lbn', r.name], ['lbv', money(r)]].forEach(([c, t]) => {
-        const s = document.createElement('span'); s.className = c; s.textContent = t; li.appendChild(s);
-      });
-      return li;
-    }));
+    const was = ovBoard.scrollTop, list = standings().slice(0, 100);
+    list.forEach((r, i) => {
+      let e = boardRows.get(r.id);
+      if (!e) {
+        e = { li: document.createElement('li'), t: {} };
+        ['lbr', 'lbn', 'lbv'].forEach(c => { const sp = document.createElement('span'); sp.className = c; e.t[c] = sp; e.li.appendChild(sp); });
+        boardRows.set(r.id, e);
+      }
+      const cls = r === karen && me >= 0 ? 'me' : !r.alive ? 'out' : '';
+      if (e.li.className !== cls) e.li.className = cls;
+      [['lbr', String(i + 1)], ['lbn', r.name], ['lbv', money(r)]].forEach(([c, t]) => { if (e.t[c].textContent !== t) e.t[c].textContent = t; });
+    });
+    const order = list.map(r => r.id).join(',');
+    if (order !== boardOrder) { boardOrder = order; ovBoard.replaceChildren(...list.map(r => boardRows.get(r.id).li)); }
     ovBoard.scrollTop = keepScroll ? was : 0;
   }
   // in the game: the top 5 in the top left, and your own row under them when you are further down
@@ -1179,8 +1187,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       else while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
     }
     updateValues();
-    // the round-over window is live: the list is rebuilt every 2 seconds from the round as it goes on
-    if (!overlay.hidden && !ovBoard.hidden && now - boardAt > 2000) { boardAt = now; fillBoard(true); }
+    // the round-over window is live: the list is refreshed every 5 seconds from the round as it goes on
+    if (!overlay.hidden && !ovBoard.hidden && now - boardAt > 5000) { boardAt = now; fillBoard(true); }
     draw(now);
     requestAnimationFrame(frame);
   }
