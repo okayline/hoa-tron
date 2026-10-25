@@ -148,7 +148,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
         <h2 id="ovTitle">Ready to ride</h2>
-        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. An iced coffee lets you survive one hit, and you can carry two. Don't touch a trail, a house or the fence.</p>
+        <p id="ovText">Karen is the pink SUV. 99 grannies share the subdivision. Every trail stays for the whole round. An iced coffee lets you break through one trail or survive one hit, and you can carry two. Don't touch a trail, a house or the fence.</p>
         <button class="go" id="go" type="button">Start</button>
       </div>
     </div>
@@ -163,7 +163,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.12</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v1.13</span></p>
 </div>
 
 <script>
@@ -444,7 +444,10 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     movers.forEach((r, i) => {
       const t = targets[i];
       if (!blocked(t.x, t.y)) return;
-      // the coffee takes the hit: stay put this step and turn to the side with more room
+      // the coffee breaks through a trail: that one cell of trail is gone and the rider drives on through it
+      const ti = t.y * W + t.x;
+      if (r.coffee > 0 && !solid[ti] && trail[ti] >= 0) { r.coffee--; trail[ti] = -1; return; }
+      // against a house, a tree or the fence the coffee takes the hit: stay put this step and turn to the side with more room
       const l = (r.dir + 3) % 4, rt = (r.dir + 1) % 4;
       const fl = freeRun(r.x, r.y, l, 12), fr = freeRun(r.x, r.y, rt, 12);
       if (r.coffee > 0 && (fl > 0 || fr > 0)) { r.coffee--; r.dir = fl >= fr ? l : rt; r.turnQ.length = 0; saved.add(i); }
