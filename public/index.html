@@ -164,7 +164,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.5</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or tap, click or swipe the board. Space starts a round.</span><span>v2.6</span></p>
 </div>
 
 <script>
@@ -391,13 +391,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   function reset(seed, humans) {
     rand = mulberry32(seed >>> 0); roundSteps = 0;
-    karen = riders[me];
-    let k = 1;
-    riders.forEach(r => {
-      r.human = humans.includes(r.id);
-      r.name = r === karen ? 'Karen' : r.human ? `Karen ${++k}` : r.baseName;
-      r.color = r === karen ? tok('--karen') : r.baseColor;
-    });
+    karen = riders[Math.max(me, 0)];
+    riders.forEach(r => { r.human = humans.includes(r.id); });
+    nameRiders();
     trail.fill(-1);
     pickStarts();
     paintMini();
@@ -444,7 +440,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       r.px = r.x; r.py = r.y;
     }
     moveOnce(riders.filter(r => r.alive));
+    if (replaying) return;
     renderChips();
+    if (me < 0) return;
     const othersAlive = riders.filter(r => r !== karen && r.alive).length;
     if (!karen.alive || othersAlive === 0) finish();
     if (online && net && stepN % 50 === 0) net.send(JSON.stringify({ t: 'hash', n: stepN, h: boardHash() }));
@@ -535,55 +533,76 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     go.focus({ preventScroll: true });
   }
   // ---------- online: the server gives the seed and every step's turns; each screen runs the same round ----------
-  let net = null, online = false, stepN = 0, lastAsk = 0, waitTimer = 0;
+  // Tap Start and you drop straight into the running round: your screen replays it from the seed and every turn so far,
+  // then you take over a granny who is still riding (the takeover is a step too, so every screen switches her at once).
+  let net = null, online = false, stepN = 0, lastAsk = 0, claim = -1, replaying = false;
   function begin(seed, humans, you) {
-    clearTimeout(overlayTimer); clearInterval(waitTimer);
+    clearTimeout(overlayTimer);
     me = you; reset(seed, humans); acc = 0; stepN = 0; lastAsk = karen.dir; state = 'play';
     overlay.hidden = true;
     renderChips();
   }
+  // names: you are Karen (pink), other players Karen 2, Karen 3... in seat order, everyone else is a granny
+  function nameRiders() {
+    let k = 1;
+    riders.forEach(r => {
+      r.name = r.id === me ? 'Karen' : r.human ? `Karen ${++k}` : r.baseName;
+      r.color = r.id === me ? tok('--karen') : r.baseColor;
+    });
+  }
+  function applyStep(n, turns, joins) {
+    joins.forEach(seat => {
+      riders[seat].human = true; riders[seat].turnQ = [];
+      if (seat === claim) { me = seat; karen = riders[me]; karen.aliveMs = 0; lastAsk = karen.dir; claim = -1; }
+      nameRiders();
+      if (me === seat && !replaying) { overlay.hidden = true; renderChips(); }
+    });
+    turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
+    stepN = n; step(); acc = 0;
+    // the granny picked could crash before the takeover arrives: pick another
+    if (!replaying && me < 0 && claim >= 0 && !riders[claim].alive) pickGranny();
+  }
+  // the granny with the longest clear road ahead
+  function pickGranny() {
+    let best = -1, run = 2;
+    riders.forEach(r => { if (r.alive && !r.human) { const f = freeRun(r.x, r.y, r.dir, 12); if (f > run) { run = f; best = r.id; } } });
+    claim = best;
+    net.send(JSON.stringify(best >= 0 ? { t: 'claim', seat: best } : { t: 'none' }));
+  }
   function startRound() {
     clearTimeout(overlayTimer);
     if (net) { net.onclose = null; net.close(); net = null; }
-    online = false;
+    online = false; claim = -1;
     let opened = false;
     try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); } catch (e) { net = null; }
     // no server here: a round on this screen only, against 99 grannies
     const solo = () => { net = null; begin((Math.random() * 4294967296) >>> 0, [0], 0); };
     if (!net) return solo();
-    showOverlay('Finding a street', 'Connecting...', 'Cancel');
+    showOverlay('Finding a street', 'Connecting...', 'Ride again');
     net.onopen = () => { opened = true; };
     net.onerror = () => { if (!opened) solo(); };
     net.onclose = () => {
       if (!opened) return;
-      net = null; clearInterval(waitTimer);
+      net = null;
       if (state !== 'over') { state = 'over'; online = false; showOverlay('Connection lost', 'The street went quiet.', 'Ride again'); }
     };
     net.onmessage = e => {
       const m = JSON.parse(e.data);
-      if (m.t === 'wait') {
-        const until = performance.now() + m.ms;
-        const show = () => {
-          const sec = Math.max(0, Math.ceil((until - performance.now()) / 1000));
-          showOverlay('Waiting for riders', `${m.n} ${m.n === 1 ? 'rider' : 'riders'} in. Starting in ${sec}s, and grannies fill the empty seats.`, 'Cancel');
-        };
-        clearInterval(waitTimer); show(); waitTimer = setInterval(show, 500);
-      } else if (m.t === 'start') { online = true; begin(m.seed, m.humans, m.you); }
-      else if (m.t === 'step' && online && state === 'play') {
-        m.turns.forEach(([seat, d]) => { riders[seat].turnQ = [d]; });
-        stepN = m.n; step(); acc = 0;
-      } else if (m.t === 'late') { net.onclose = null; net = null; startRound(); }
+      if (m.t === 'start') {
+        online = true; me = -1; reset(m.seed, []); state = 'play'; acc = 0;
+        replaying = true;
+        const at = new Map(m.history.map(h => [h[0], h]));
+        for (let n = 1; n <= m.n; n++) { const h = at.get(n); applyStep(n, h ? h[1] : [], h ? h[2] : []); }
+        replaying = false;
+        renderChips();
+        pickGranny();
+      } else if (m.t === 'step' && online && state === 'play') applyStep(m.n, m.turns, m.joins);
+      else if (m.t === 'late') { net.onclose = null; net = null; setTimeout(startRound, 300); }
     };
   }
-  function cancelWait() {
-    clearInterval(waitTimer);
-    if (net) { net.onclose = null; net.close(); net = null; }
-    state = 'ready'; showOverlay('Ready to ride', ovIntro, 'Start');
-  }
-  const ovIntro = ovText.textContent;
-  go.addEventListener('click', () => { if (go.textContent === 'Cancel') cancelWait(); else startRound(); });
+  go.addEventListener('click', startRound);
   document.addEventListener('click', e => {
-    if (state !== 'over' || overlay.hidden || go.textContent === 'Cancel') return;
+    if (state !== 'over' || overlay.hidden) return;
     if (performance.now() - overlayShownAt < 500) return;
     if (e.target.closest && e.target.closest('#pad')) return;
     startRound();
@@ -621,7 +640,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   // ---------- input ----------
   function heading() { return online ? lastAsk : karen.turnQ.length ? karen.turnQ[karen.turnQ.length - 1] : karen.dir; }
   function queueTurn(d) {
-    if (state !== 'play' || !karen.alive) return;
+    if (state !== 'play' || me < 0 || !karen.alive) return;
     const last = heading();
     if (d === last || d === (last + 2) % 4) return;
     if (online) { if (net) net.send(JSON.stringify({ t: 'turn', d })); lastAsk = d; return; }
@@ -1037,7 +1056,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ];
     ctx.save();
     ctx.font = '700 17px "Figtree", system-ui, sans-serif';
-    const widths = items.map(([, t]) => 24 + ctx.measureText(t).width + 12);
+    // a fixed width per item (room for 10:00, 100 and 2), so the row and the minimap don't change size as numbers change
+    const widths = ['10:00', '100', '2'].map(t => 24 + ctx.measureText(t).width + 12);
     ctx.restore();
     return { items, widths, total: widths.reduce((a, c) => a + c, 0) + 8 };
   }
