@@ -162,10 +162,10 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with a hundred SUVs leaving glowing trails"></canvas>
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
-        <h2 id="ovTitle">Ready to ride</h2>
+        <h2 id="ovTitle">Ready to complain</h2>
         <p id="ovText"></p>
         <ol class="lb" id="ovBoard" aria-label="Leaderboard" hidden></ol>
-        <button class="go" id="go" type="button">Start</button>
+        <button class="go" id="go" type="button">Manager!!!</button>
       </div>
     </div>
   </div>
@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.25</span></p>
+  <p class="foot"><span></span><span>v2.26</span></p>
 </div>
 
 <script>
@@ -615,7 +615,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     net.onclose = () => {
       if (!opened) return;
       net = null;
-      if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to ride', ovIntro, 'Start'); }
+      if (state !== 'over') { state = 'over'; online = false; showOverlay('Ready to complain', ovIntro, 'Manager!!!'); }
     };
     net.onmessage = e => {
       const m = JSON.parse(e.data);
