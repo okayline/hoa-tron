@@ -108,6 +108,21 @@ canvas { display: block; width: 100%; height: 100%; }
 }
 button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
+/* the leaderboard window after a round: a light veil, so the board stays visible underneath */
+.overlay.win { background: rgba(11, 10, 26, 0.25); }
+.overlay.win .card {
+  width: min(400px, 100%); max-height: 100%; min-height: 0; gap: 8px; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55);
+}
+.overlay.win .card p { display: none; }
+.lb { list-style: none; margin: 0; padding: 0; width: 100%; flex: 1 1 auto; min-height: 0; overflow-y: auto; font: 600 14px var(--font-body); text-align: left; }
+.lb[hidden] { display: none; }
+.lb li { display: grid; grid-template-columns: 2.4em 1fr auto; gap: 8px; align-items: center; padding: 3px 8px; white-space: nowrap; border-radius: 4px; }
+.lb .lbr { color: var(--muted); font: 500 12px var(--font-mono); }
+.lb .lbn { overflow: hidden; text-overflow: ellipsis; }
+.lb li.me { color: #fff; background: rgba(255, 61, 166, 0.22); box-shadow: inset 0 0 0 1px var(--karen); }
+.lb li.out { color: var(--muted); }
+
 .chips { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .chip {
   display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center;
@@ -139,6 +154,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       <div class="card">
         <h2 id="ovTitle">Ready to ride</h2>
         <p id="ovText"></p>
+        <ol class="lb" id="ovBoard" aria-label="Leaderboard" hidden></ol>
         <button class="go" id="go" type="button">Start</button>
       </div>
     </div>
@@ -147,7 +163,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
 
 
-  <p class="foot"><span></span><span>v2.18</span></p>
+  <p class="foot"><span></span><span>v2.19</span></p>
 </div>
 
 <script>
@@ -504,7 +520,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     }
     renderChips();
     clearTimeout(overlayTimer);
-    overlayTimer = setTimeout(() => showOverlay(title, text, 'Ride again'), 800);
+    overlayTimer = setTimeout(() => showOverlay(title, text, 'Ride again', true), 800);
   }
 
   // ---------- overlay + chips ----------
@@ -513,8 +529,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const ovText = document.getElementById('ovText');
   const go = document.getElementById('go');
   const ovIntro = ovText.textContent;
-  function showOverlay(t, p, label) {
+  const ovBoard = document.getElementById('ovBoard');
+  // board = true: the round-over window with the leaderboard (top 50), the board still visible underneath
+  function showOverlay(t, p, label, board) {
     ovTitle.textContent = t; ovText.textContent = p; go.textContent = label;
+    overlay.classList.toggle('win', !!board); ovBoard.hidden = !board;
+    if (board) fillBoard();
     overlay.hidden = false; overlayShownAt = performance.now();
     go.focus({ preventScroll: true });
   }
@@ -591,7 +611,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   go.addEventListener('click', startRound);
   document.addEventListener('click', e => {
     if (state !== 'over' || overlay.hidden) return;
-    if (go.contains(e.target)) return; // the button already starts the round; counting its tap twice started two rounds at once
+    if (e.target.closest('.card')) return; // the button already starts the round (counting its tap twice started two rounds at once), and taps on the leaderboard should not
     if (performance.now() - overlayShownAt < 500) return;
     startRound();
   });
@@ -994,14 +1014,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       ctx.restore();
     });
     ctx.restore();
-    // Karen's property value, big white text in the top left
-    ctx.save();
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = '#ffffff';
-    ctx.font = '600 18px "Figtree", system-ui, sans-serif';
-    ctx.fillText("Karen's Property Value", 20, 14);
-    ctx.font = '700 44px "Figtree", system-ui, sans-serif';
-    ctx.fillText('$' + karenValue().toLocaleString('en-US'), 18, 36);
-    ctx.restore();
+    drawBoard(); // the leaderboard in the top left
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
     // as wide as the stats row above it
     const MS = statsRow().total / W, mw = W * MS, mh = H * MS, mx = canvas.width - mw - 10, my = canvas.height - mh - 10;
@@ -1052,6 +1065,42 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.restore();
   }
 
+  // the leaderboard: real riders first, then grannies; each group by property value, highest first
+  const standings = () => riders.slice().sort((a, b) => (b.human - a.human) || (riderValue(b) - riderValue(a)) || (a.id - b.id));
+  const money = r => '$' + riderValue(r).toLocaleString('en-US');
+  // the round-over window: the top 50, your row highlighted, riders who have crashed dimmed
+  function fillBoard() {
+    ovBoard.replaceChildren(...standings().slice(0, 50).map((r, i) => {
+      const li = document.createElement('li');
+      if (r === karen && me >= 0) li.className = 'me'; else if (!r.alive) li.className = 'out';
+      [['lbr', String(i + 1)], ['lbn', r.name], ['lbv', money(r)]].forEach(([c, t]) => {
+        const s = document.createElement('span'); s.className = c; s.textContent = t; li.appendChild(s);
+      });
+      return li;
+    }));
+    ovBoard.scrollTop = 0;
+  }
+  // in the game: the top 5 in the top left, and your own row under them when you are further down
+  function drawBoard() {
+    const all = standings(), mine = me >= 0 ? all.indexOf(karen) : -1;
+    const rows = all.slice(0, 5).map((r, i) => [i + 1, r]);
+    const gap = mine >= 5;
+    if (gap) rows.push([mine + 1, karen]);
+    const X = 14, Y = 10, W = 236, RH = 21, P = 8, H = P * 2 + 18 + rows.length * RH + (gap ? 6 : 0);
+    ctx.save();
+    ctx.fillStyle = 'rgba(11, 10, 26, 0.72)'; rr(ctx, X, Y, W, H, 8); ctx.fill();
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = '700 12px "Figtree", system-ui, sans-serif'; ctx.fillStyle = '#b9b5dd';
+    ctx.fillText('LEADERBOARD', X + P, Y + P + 7);
+    ctx.font = '600 14px "Figtree", system-ui, sans-serif';
+    rows.forEach(([rank, r], i) => {
+      const y = Y + P + 18 + i * RH + RH / 2 + (gap && i === rows.length - 1 ? 6 : 0);
+      ctx.fillStyle = r === karen && me >= 0 ? karen.color : r.alive ? '#ffffff' : 'rgba(255, 255, 255, 0.45)';
+      ctx.textAlign = 'left'; ctx.fillText(String(rank), X + P, y); ctx.fillText(r.name, X + P + 26, y);
+      ctx.textAlign = 'right'; ctx.fillText(money(r), X + W - P, y);
+    });
+    ctx.restore();
+  }
   // property value: $19,000 for every step a rider has been alive since they took their granny over (about what it was by the clock)
   const riderValue = r => (r.steps - r.base) * 19000;
   // with no granny of your own yet, you see the number you ended on; it does not go up
