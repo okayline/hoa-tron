@@ -173,7 +173,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v2.29</span></p>
+  <p class="foot"><span></span><span>v2.31</span></p>
 </div>
 
 <script>
@@ -406,6 +406,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
 
   function reset(seed, humans) {
+    newsAt = -1e9;
     rand = mulberry32(seed >>> 0); roundSteps = 0;
     karen = riders[Math.max(me, 0)];
     riders.forEach(r => { r.human = humans.includes(r.id); });
@@ -541,8 +542,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     overlayTimer = setTimeout(() => showOverlay(title, text, 'Manager!!!', true), 800);
     if (othersAlive === 0) endRound();
   }
-  // nobody is left riding: the server is told the round is over, and a new round starts by itself after a few seconds
-  // (the same as tapping the button; the window with the final list stays up until then)
+  // nobody is left riding: the server is told the round is over, and a new round starts at once, by itself
+  // (the same as tapping the button)
   function endRound() {
     if (ending) return;
     ending = true;
@@ -551,7 +552,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
   function autoReload() {
     clearTimeout(reloadTimer);
-    reloadTimer = setTimeout(() => { if (state === 'over') startRound(); }, 5000);
+    reloadTimer = setTimeout(() => { if (state === 'over') startRound(); }, 0);
   }
 
   // ---------- overlay + chips ----------
@@ -581,6 +582,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
   // names: you are Karen (pink), other players Karen 2, Karen 3... in seat order, everyone else is a granny
   function nameRiders() {
+    newsAt = -1e9;
     let k = 1;
     riders.forEach(r => {
       r.name = r.id === me ? 'Karen' : r.human ? `Karen ${++k}` : r.baseName;
@@ -1060,7 +1062,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
       ctx.restore();
     });
     ctx.restore();
-    drawBoard(); // the leaderboard in the top left
+    drawBoard(now); // the leaderboard in the top left
     // minimap, bottom right: every trail, Karen's spot, and the part of the map on screen
     // as wide as the stats row above it
     // on a phone held upright the whole corner (minimap and stats row) is drawn smaller, shrinking towards the bottom right corner
@@ -1132,11 +1134,18 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ovBoard.scrollTop = keepScroll ? was : 0;
   }
   // in the game: the top 5 in the top left, and your own row under them when you are further down
-  function drawBoard() {
-    const all = standings(), mine = me >= 0 ? all.indexOf(karen) : -1;
-    const rows = all.slice(0, 5).map((r, i) => [i + 1, r]);
-    const gap = mine >= 5;
-    if (gap) rows.push([mine + 1, karen]);
+  // the HOA Newsletter only changes every 2 seconds (or at once when you take over a granny or a new round starts); in between, the same rows are drawn
+  let newsRows = null, newsAt = -1e9;
+  function drawBoard(now) {
+    if (!newsRows || now - newsAt > 2000) {
+      newsAt = now;
+      const all = standings(), mine = me >= 0 ? all.indexOf(karen) : -1;
+      newsRows = all.slice(0, 5).map((r, i) => [i + 1, r]);
+      if (mine >= 5) newsRows.push([mine + 1, karen]);
+      newsRows = newsRows.map(([rank, r]) => [rank, r.name, money(r), r === karen && me >= 0 ? karen.color : r.alive ? '#ffffff' : 'rgba(255, 255, 255, 0.45)']);
+      newsRows.gap = mine >= 5;
+    }
+    const rows = newsRows, gap = rows.gap;
     const X = 14, Y = 10, W = 236, RH = 21, P = 8, H = P * 2 + 18 + rows.length * RH + (gap ? 6 : 0);
     ctx.save();
     if (upright.matches) ctx.scale(0.78, 0.78); // smaller panel on an upright phone
@@ -1145,11 +1154,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     ctx.font = '700 12px "Figtree", system-ui, sans-serif'; ctx.fillStyle = '#b9b5dd';
     ctx.fillText('HOA NEWSLETTER', X + P, Y + P + 7);
     ctx.font = '600 14px "Figtree", system-ui, sans-serif';
-    rows.forEach(([rank, r], i) => {
+    rows.forEach(([rank, name, value, color], i) => {
       const y = Y + P + 18 + i * RH + RH / 2 + (gap && i === rows.length - 1 ? 6 : 0);
-      ctx.fillStyle = r === karen && me >= 0 ? karen.color : r.alive ? '#ffffff' : 'rgba(255, 255, 255, 0.45)';
-      ctx.textAlign = 'left'; ctx.fillText(String(rank), X + P, y); ctx.fillText(r.name, X + P + 26, y);
-      ctx.textAlign = 'right'; ctx.fillText(money(r), X + W - P, y);
+      ctx.fillStyle = color;
+      ctx.textAlign = 'left'; ctx.fillText(String(rank), X + P, y); ctx.fillText(name, X + P + 26, y);
+      ctx.textAlign = 'right'; ctx.fillText(value, X + W - P, y);
     });
     ctx.restore();
   }
