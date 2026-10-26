@@ -20,10 +20,12 @@ new ResizeObserver(fitChips).observe(document.getElementById('chips')); new Resi
 
 // ---------- round ----------
 let state = 'ready'; // ready | play | over
-let online = false, net = null, seed = 1, startAt = Date.now(), offset = 0, bestRtt = Infinity;
+let online = false, net = null, seed = 1, startAt = 0, offset = 0, bestRtt = Infinity;
 let me = -1, claim = -1, wins = 0, heldVal = 0, liveOver = false, ending = false, idleRounds = 0, overlayTimer = 0, reloadTimer = 0, pingTimer = 0;
 const karen = () => riders[me >= 0 ? me : 0];
-const serverNow = () => Date.now() + offset;
+// this screen's clock: performance.now() moves smoothly and never jumps (Date.now() is coarse in Firefox and jumps when the computer's clock is set)
+const wall = () => performance.timeOrigin + performance.now();
+const serverNow = () => wall() + offset;
 const target = () => Math.max(0, Math.min(MAX_STEPS, Math.floor((serverNow() - startAt) / TICK)));
 
 // your own turns: { n, d, id }; the server may move one to a later step, and says so
@@ -178,13 +180,13 @@ function startRound() {
   if (net) { net.onclose = null; net.close(); net = null; }
   online = false; me = -1; claim = -1; bestRtt = Infinity;
   let opened = false;
-  const solo = () => { net = null; online = false; offset = 0; G.clearEvents(); me = 0; begin((Math.random() * 4294967296) >>> 0, Date.now()); G.addJoin(1, 0); overlay.hidden = true; };
+  const solo = () => { net = null; online = false; offset = 0; G.clearEvents(); me = 0; begin((Math.random() * 4294967296) >>> 0, wall()); G.addJoin(1, 0); overlay.hidden = true; };
   try { net = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' + (playerId() ? '?p=' + playerId() : '')); } catch (e) { net = null; }
   if (!net) return solo(); // no server here: a round on this screen only, against 99 grannies
   const ws = net;
   ws.onopen = () => {
     opened = true;
-    const ping = () => send({ t: 'ping', c: Date.now() });
+    const ping = () => send({ t: 'ping', c: wall() });
     ping(); setTimeout(ping, 250); setTimeout(ping, 500);
     pingTimer = setInterval(ping, 5000);
   };
@@ -199,7 +201,7 @@ function startRound() {
     if (net !== ws) return;
     const m = JSON.parse(e.data);
     if (m.t === 'start') {
-      online = true; offset = m.now - Date.now();
+      online = true; offset = m.now - wall();
       G.clearEvents(); m.events.forEach(ev => onEvent(ev));
       begin(m.seed, m.startAt); catchUp();
       // a player who has been here before asks for their own granny back first
@@ -207,7 +209,7 @@ function startRound() {
       else pickGranny();
     } else if (m.t === 'pong') {
       // the server's clock: keep the sample with the shortest round trip
-      const rtt = Date.now() - m.c;
+      const rtt = wall() - m.c;
       if (rtt <= bestRtt) { bestRtt = rtt; offset = m.s - (m.c + rtt / 2); }
     } else if (m.t === 'ev') onEvent(m.e, m.id);
     else if (m.t === 'won' && state === 'play') {
