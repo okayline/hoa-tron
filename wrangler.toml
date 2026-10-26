@@ -10,6 +10,13 @@ binding = "ASSETS"
 name = "ROOMS"
 class_name = "Room"
 
+# v1 is what the live hoa-wars Worker already has (the old Lobby and Match).
+# v2 deletes them, with their saved rounds, and adds the new Room.
 [[migrations]]
 tag = "v1"
+new_sqlite_classes = ["Lobby", "Match"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Lobby", "Match"]
 new_sqlite_classes = ["Room"]
