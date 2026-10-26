@@ -2,6 +2,10 @@
 
 Newest first. Times are Hawaii time (HST).
 
+## v3.10 · Mon Oct 26, 2026
+- The turn buttons stay on screen after you crash (under the round-over window).
+- Removed: the buttons hiding when you crash.
+
 ## v3.9 · Mon Oct 26, 2026
 - Removed: the dark outline around the arrows in the turn buttons.
 
