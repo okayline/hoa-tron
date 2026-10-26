@@ -1,0 +1,22 @@
+name = "hoa-wars"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/ws"]
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+# The live hoa-wars Worker already has both of these (v1 from the old version, v2 from the deploy on 2026-10-26).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Lobby", "Match"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Lobby", "Match"]
+new_sqlite_classes = ["Room"]

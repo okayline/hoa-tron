@@ -1,0 +1,181 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>HOA Wars</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&family=Figtree:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: neon HOA entrance-sign header, the game screen, two rider boxes under it. */
+:root {
+  --bg: #0b0a1a;
+  --ground: #141230;
+  --panel: #17143a;
+  --line: #2c2759;
+  --veil: rgba(11, 10, 26, 0.78);
+  --ink: #ece9fb;
+  --muted: #9a96c4;
+  --on-accent: #1a0618;
+
+  --karen: #ff3da6;
+  --karen-glow: rgba(255, 61, 166, 0.55);
+  --gladys: #35e0ff;
+  --doris: #ffd23d;
+  --peggy: #7dff6a;
+
+  --grass: #163a28;
+  --grass-stripe: #19412c;
+  --lawn: #1e4f37;
+  --road: #232141;
+  --walk: #3b3a5f;
+  --walk-line: #2d2c4c;
+  --stripe: #9b8a3c;
+  --drive: #44426b;
+  --roof-a: #4a3f7a;
+  --roof-b: #3b4f86;
+  --roof-c: #7a3f6c;
+  --roof-d: #3f6b7a;
+  --hoa: #d9d4f2;
+  --window: #ffd27a;
+  --leaf: #2a7a4b;
+  --leaf-hi: #3fa86a;
+  --mail: #ff5a5a;
+  --fence: #e8e4f0;
+  --fence-base: #1b1838;
+  --water: #234f9e;
+  --water-hi: #5f8fe0;
+  --asphalt: #1c1a36;
+  --field: #1d5a35;
+  --concrete: #8a8ca6;
+  --brick: #7a4a4a;
+
+  --font-display: 'Monoton', 'Impact', sans-serif;
+  --font-body: 'Figtree', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  padding-block: 20px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+header { display: flex; flex-direction: column; gap: 4px; }
+.eyebrow { margin: 0; font: 600 12px var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+h1 {
+  margin: 0;
+  font: 400 clamp(1.7rem, 7vw, 3.2rem) / 1.1 var(--font-display);
+  color: var(--karen);
+  text-shadow: 0 0 14px var(--karen-glow);
+  text-wrap: balance;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 40 / 26;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--ground);
+  touch-action: none;
+}
+canvas { display: block; width: 100%; height: 100%; }
+/* a phone held upright: a tall game screen that shows fewer cells, so everything is bigger (the view size is set in fitView) */
+@media (max-width: 720px) and (orientation: portrait) {
+  .stage { aspect-ratio: 20 / 36; }
+  /* the rider boxes sit on the bottom of the game screen, see-through */
+  .play { position: relative; }
+  .wrap .chips { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wrap .chip { background: color-mix(in srgb, var(--panel) 22%, transparent); border-color: rgba(255, 255, 255, 0.14); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); }
+}
+.overlay {
+  z-index: 2;
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  background: var(--veil);
+}
+.card { max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.card p:empty { display: none; }
+.card h2 { margin: 0; font-size: clamp(1.25rem, 4vw, 1.9rem); font-weight: 700; text-wrap: balance; }
+.card p { margin: 0; color: var(--muted); line-height: 1.45; font-size: clamp(0.85rem, 2.4vw, 1rem); }
+.go {
+  min-height: 44px; padding: 10px 24px;
+  font: 700 1rem var(--font-body);
+  color: var(--on-accent); background: var(--karen);
+  border: 0; border-radius: 6px; cursor: pointer;
+  box-shadow: 0 0 16px var(--karen-glow);
+}
+button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+/* the leaderboard window after a round: a light veil, so the board stays visible underneath */
+.overlay.win { background: rgba(11, 10, 26, 0.25); }
+.overlay.win .card {
+  width: min(400px, 100%); max-height: 100%; min-height: 0; gap: 8px; padding: 12px 14px;
+  background: color-mix(in srgb, var(--panel) 62%, transparent); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55);
+}
+.overlay.win .card p { display: none; }
+.lb { list-style: none; margin: 0; padding: 0; width: 100%; flex: 1 1 auto; min-height: 0; overflow-y: auto; font: 600 14px var(--font-body); text-align: left; }
+.lb[hidden] { display: none; }
+.lb li { display: grid; grid-template-columns: 2.4em 1fr auto; gap: 8px; align-items: center; padding: 3px 8px; white-space: nowrap; border-radius: 4px; }
+.lb .lbr { color: var(--muted); font: 500 12px var(--font-mono); }
+.lb .lbn { overflow: hidden; text-overflow: ellipsis; }
+.lb li.me { color: #fff; background: rgba(255, 61, 166, 0.22); box-shadow: inset 0 0 0 1px var(--karen); }
+.lb li.out { color: var(--muted); }
+
+.chips { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.chip {
+  display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center;
+  padding: 8px 10px; min-width: 0; container-type: inline-size;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+}
+.dot { grid-row: 1 / span 3; width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
+.nm { grid-column: 2; grid-row: 2; font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.meta { grid-column: 2; grid-row: 3; font: 500 12px var(--font-mono); color: var(--muted); }
+.meta .cup { width: 11px; height: 16px; vertical-align: -3px; margin-right: 2px; }
+.val { grid-column: 2; grid-row: 1; font: 700 1.1rem / 1.1 var(--font-body); font-size: max(14px, min(1.9rem, calc((100cqw - 46px) / 6.8))); font-variant-numeric: tabular-nums; color: var(--c); white-space: nowrap; }
+.chip.out { opacity: 0.5; }
+.chip.out .nm { text-decoration: line-through; }
+.chip.win { border-color: var(--c); }
+
+
+.foot { margin: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; font: 500 12px var(--font-mono); color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Neighborhood HOA Simulator</p>
+    <h1>HOA Wars</h1>
+  </header>
+
+  <div class="play">
+  <div class="stage" id="stage">
+    <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with a hundred SUVs leaving glowing trails"></canvas>
+    <div class="overlay" id="overlay" aria-live="polite">
+      <div class="card">
+        <h2 id="ovTitle">Ready to complain...</h2>
+        <p id="ovText"></p>
+        <ol class="lb" id="ovBoard" aria-label="Leaderboard" hidden></ol>
+        <button class="go" id="go" type="button">Manager!!!</button>
+      </div>
+    </div>
+  </div>
+
+  <ul class="chips" id="chips" aria-label="Riders"></ul>
+  </div>
+
+  <p class="foot"><span></span><span>v3.0</span></p>
+</div>
+
+<script type="module" src="main.js"></script>
+
+</body></html>
