@@ -5,13 +5,13 @@ compatibility_date = "2026-10-01"
 [assets]
 directory = "./public"
 binding = "ASSETS"
+run_worker_first = ["/ws"]
 
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "Room"
 
-# v1 is what the live hoa-wars Worker already has (the old Lobby and Match).
-# v2 deletes them, with their saved rounds, and adds the new Room.
+# The live hoa-wars Worker already has both of these (v1 from the old version, v2 from the deploy on 2026-10-26).
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Lobby", "Match"]

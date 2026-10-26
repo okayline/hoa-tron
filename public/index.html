@@ -5,7 +5,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Monoton&family=Figtree:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
-/* Layout: neon HOA entrance-sign header, one 40x26 board, rider status chips under it, thumb pad on touch screens. */
+/* Layout: neon HOA entrance-sign header, the game screen, two rider boxes under it. */
 :root {
   --bg: #0b0a1a;
   --ground: #141230;
@@ -41,6 +41,12 @@
   --mail: #ff5a5a;
   --fence: #e8e4f0;
   --fence-base: #1b1838;
+  --water: #234f9e;
+  --water-hi: #5f8fe0;
+  --asphalt: #1c1a36;
+  --field: #1d5a35;
+  --concrete: #8a8ca6;
+  --brick: #7a4a4a;
 
   --font-display: 'Monoton', 'Impact', sans-serif;
   --font-body: 'Figtree', system-ui, sans-serif;
@@ -58,6 +64,7 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
+.wrap { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 
 header { display: flex; flex-direction: column; gap: 4px; }
@@ -82,13 +89,23 @@ h1 {
   touch-action: none;
 }
 canvas { display: block; width: 100%; height: 100%; }
+/* a phone held upright: a tall game screen that shows fewer cells, so everything is bigger (the view size is set in fitView) */
+@media (max-width: 720px) and (orientation: portrait) {
+  .stage { aspect-ratio: 20 / 36; }
+  /* the rider boxes sit on the bottom of the game screen, see-through */
+  .play { position: relative; }
+  .wrap .chips { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wrap .chip { background: color-mix(in srgb, var(--panel) 22%, transparent); border-color: rgba(255, 255, 255, 0.14); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); }
+}
 .overlay {
+  z-index: 2;
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
   background: var(--veil);
 }
 .card { max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.card p:empty { display: none; }
 .card h2 { margin: 0; font-size: clamp(1.25rem, 4vw, 1.9rem); font-weight: 700; text-wrap: balance; }
 .card p { margin: 0; color: var(--muted); line-height: 1.45; font-size: clamp(0.85rem, 2.4vw, 1rem); }
 .go {
@@ -100,6 +117,21 @@ canvas { display: block; width: 100%; height: 100%; }
 }
 button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
+/* the leaderboard window after a round: a light veil, so the board stays visible underneath */
+.overlay.win { background: rgba(11, 10, 26, 0.25); }
+.overlay.win .card {
+  width: min(400px, 100%); max-height: 100%; min-height: 0; gap: 8px; padding: 12px 14px;
+  background: color-mix(in srgb, var(--panel) 62%, transparent); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55);
+}
+.overlay.win .card p { display: none; }
+.lb { list-style: none; margin: 0; padding: 0; width: 100%; flex: 1 1 auto; min-height: 0; overflow-y: auto; font: 600 14px var(--font-body); text-align: left; }
+.lb[hidden] { display: none; }
+.lb li { display: grid; grid-template-columns: 2.4em 1fr auto; gap: 8px; align-items: center; padding: 3px 8px; white-space: nowrap; border-radius: 4px; }
+.lb .lbr { color: var(--muted); font: 500 12px var(--font-mono); }
+.lb .lbn { overflow: hidden; text-overflow: ellipsis; }
+.lb li.me { color: #fff; background: rgba(255, 61, 166, 0.22); box-shadow: inset 0 0 0 1px var(--karen); }
+.lb li.out { color: var(--muted); }
+
 .chips { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .chip {
   display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center;
@@ -109,23 +141,12 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .dot { grid-row: 1 / span 3; width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
 .nm { grid-column: 2; grid-row: 2; font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
 .meta { grid-column: 2; grid-row: 3; font: 500 12px var(--font-mono); color: var(--muted); }
+.meta .cup { width: 11px; height: 16px; vertical-align: -3px; margin-right: 2px; }
 .val { grid-column: 2; grid-row: 1; font: 700 1.1rem / 1.1 var(--font-body); font-size: max(14px, min(1.9rem, calc((100cqw - 46px) / 6.8))); font-variant-numeric: tabular-nums; color: var(--c); white-space: nowrap; }
 .chip.out { opacity: 0.5; }
 .chip.out .nm { text-decoration: line-through; }
 .chip.win { border-color: var(--c); }
 
-.pad {
-  display: none; width: 100%; max-width: 240px; margin: 0 auto;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-areas: ". u ." "l d r";
-  gap: 8px; touch-action: none;
-}
-.pad button {
-  min-height: 56px; font-size: 22px; color: var(--ink);
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-}
-.pad .u { grid-area: u; } .pad .l { grid-area: l; } .pad .d { grid-area: d; } .pad .r { grid-area: r; }
-@media (pointer: coarse) { .pad { display: grid; } }
 
 .foot { margin: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; font: 500 12px var(--font-mono); color: var(--muted); }
 </style>
@@ -136,397 +157,25 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <h1>HOA Wars</h1>
   </header>
 
+  <div class="play">
   <div class="stage" id="stage">
-    <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with four SUVs leaving glowing trails"></canvas>
+    <canvas id="board" role="img" aria-label="Top-down view of the HOA Wars neighborhood with a hundred SUVs leaving glowing trails"></canvas>
     <div class="overlay" id="overlay" aria-live="polite">
       <div class="card">
-        <h2 id="ovTitle">Ready to ride</h2>
-        <p id="ovText">Karen is the pink SUV. Three grannies share the street. Don't touch a trail, a house, a mailbox or the fence.</p>
-        <button class="go" id="go" type="button">Start</button>
+        <h2 id="ovTitle">Ready to complain...</h2>
+        <p id="ovText"></p>
+        <ol class="lb" id="ovBoard" aria-label="Leaderboard" hidden></ol>
+        <button class="go" id="go" type="button">Manager!!!</button>
       </div>
     </div>
   </div>
 
   <ul class="chips" id="chips" aria-label="Riders"></ul>
-
-  <div class="pad" id="pad" aria-label="Steering buttons">
-    <button type="button" class="u" data-dir="0" aria-label="Steer up">↑</button>
-    <button type="button" class="l" data-dir="3" aria-label="Steer left">←</button>
-    <button type="button" class="d" data-dir="2" aria-label="Steer down">↓</button>
-    <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or swipe the board. Space starts a round.</span><span>v2.0</span></p>
+  <p class="foot"><span></span><span>v3.0</span></p>
 </div>
 
-<script type="module">
-import { W, H, TICK, RIDERS, buildMap } from './game.js';
-(() => {
-  const CELL = 24;
-  const cs = getComputedStyle(document.documentElement);
-  const tok = n => cs.getPropertyValue(n).trim();
-  const C = {
-    bg: tok('--bg'), ink: tok('--ink'), grass: tok('--grass'), grassStripe: tok('--grass-stripe'),
-    road: tok('--road'), walk: tok('--walk'), walkLine: tok('--walk-line'), stripe: tok('--stripe'),
-    lawn: tok('--lawn'), drive: tok('--drive'), hoa: tok('--hoa'), window: tok('--window'),
-    leaf: tok('--leaf'), leafHi: tok('--leaf-hi'), mail: tok('--mail'),
-    fence: tok('--fence'), fenceBase: tok('--fence-base'),
-    roofs: [tok('--roof-a'), tok('--roof-b'), tok('--roof-c'), tok('--roof-d')]
-  };
-
-  const canvas = document.getElementById('board');
-  const ctx = canvas.getContext('2d');
-  canvas.width = W * CELL; canvas.height = H * CELL;
-
-  const { houses, trees, boxes, bushes } = buildMap();
-  houses.forEach(h => { h.tone = h.hoa ? C.hoa : C.roofs[h.tone]; });
-
-  // The server decides everything; the page draws what it's told and sends turns.
-  const riders = RIDERS.map((r, i) => ({
-    ...r, id: i, color: tok(r.col), wins: 0, aliveMs: 0, shownVal: '', alive: true, human: false, path: [],
-    x: r.sx, y: r.sy, px: r.sx, py: r.sy, dir: r.sdir, boom: null, note: '', seed: Math.random() * 6
-  }));
-
-  let state = 'ready'; // ready | play | over
-  let mySeat = -1, acc = 0, lastTickAt = performance.now(), overlayShownAt = 0, title = '', text = '';
-  let room = location.hash.slice(1).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (!room) { room = Math.random().toString(36).slice(2, 7).toUpperCase(); history.replaceState(null, '', '#' + room); }
-
-  // ---------- network ----------
-  let ws = null, retry = 0;
-  function connect() {
-    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?room=${room}`);
-    ws.onopen = () => { retry = 0; };
-    ws.onmessage = e => onMessage(JSON.parse(e.data));
-    ws.onclose = () => { ws = null; showOverlay('Reconnecting', 'Lost the connection to the neighborhood. Trying again.', 'Start'); setTimeout(connect, Math.min(4000, 500 * ++retry)); };
-  }
-  const send = m => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
-
-  function onMessage(m) {
-    const now = performance.now();
-    if (m.t === 'hello') { mySeat = m.seat; return; }
-    if (m.t === 'tick') {
-      m.p.forEach(([x, y, dir, alive], i) => {
-        const r = riders[i]; if (!r.alive) return;
-        r.px = r.x; r.py = r.y; r.dir = dir;
-        if (alive) { r.x = x; r.y = y; r.path.push({ x, y }); r.aliveMs += TICK; }
-        else { r.alive = false; r.px = r.x; r.py = r.y; r.boom = { x: (x + DIRS[dir].x + 0.5) * CELL, y: (y + DIRS[dir].y + 0.5) * CELL, t0: now }; }
-      });
-      lastTickAt = now;
-      return;
-    }
-    if (m.t === 'state') {
-      const was = state;
-      state = m.phase; title = m.title; text = m.text;
-      m.riders.forEach((s, i) => {
-        const r = riders[i];
-        r.wins = s.wins; r.note = s.note; r.human = m.seats[i];
-        if (m.paths) {
-          r.path = m.paths[i].map(([x, y]) => ({ x, y }));
-          r.x = r.px = s.x; r.y = r.py = s.y; r.dir = s.dir; r.alive = s.alive; r.boom = null;
-          if (state === 'play' && was !== 'play') r.aliveMs = 0;
-        }
-      });
-      renderChips();
-      if (state === 'play') { overlay.hidden = true; lastTickAt = now; }
-      else if (state === 'over') { if (was === 'play') setTimeout(() => state === 'over' && showOverlay(title, overNote(), 'Ride again'), 800); else showOverlay(title, overNote(), 'Ride again'); }
-      else showOverlay('Ready to ride', readyText(), 'Start');
-    }
-  }
-  const DIRS = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
-  const me = () => riders[mySeat];
-  function readyText() {
-    const who = mySeat >= 0 ? `You're ${me().name}.` : 'The street is full, so you are watching.';
-    return `${who} Grannies drive any empty SUV. Don't touch a trail, a house, a mailbox or the fence. Invite neighbors: ${location.href}`;
-  }
-  function overNote() { return (mySeat >= 0 && !me().alive && me().note ? me().note + ' ' : '') + text; }
-
-  // ---------- overlay + chips ----------
-  const overlay = document.getElementById('overlay');
-  const ovTitle = document.getElementById('ovTitle');
-  const ovText = document.getElementById('ovText');
-  const go = document.getElementById('go');
-  function showOverlay(t, p, label) {
-    ovTitle.textContent = t; ovText.textContent = p; go.textContent = label;
-    overlay.hidden = false; overlayShownAt = performance.now();
-    go.focus({ preventScroll: true });
-  }
-  function startRound() { if (state !== 'play' && mySeat >= 0) send({ t: 'start' }); }
-  go.addEventListener('click', startRound);
-  document.addEventListener('click', e => {
-    if (state !== 'over' || overlay.hidden) return;
-    if (performance.now() - overlayShownAt < 500) return;
-    if (e.target.closest && e.target.closest('#pad')) return;
-    startRound();
-  });
-
-  const chipsEl = document.getElementById('chips');
-  riders.forEach(r => {
-    const li = document.createElement('li');
-    li.className = 'chip';
-    li.style.setProperty('--c', r.color);
-    li.innerHTML = '<span class="dot"></span><span class="nm"></span><span class="meta"></span><span class="val"></span>';
-    li.querySelector('.nm').textContent = `${r.name}'s Property Value`;
-    r.li = li; r.meta = li.querySelector('.meta'); r.val = li.querySelector('.val');
-    chipsEl.appendChild(li);
-  });
-  function renderChips() {
-    riders.forEach((r, i) => {
-      let status;
-      if (state === 'ready') status = 'on the line';
-      else if (!r.alive) status = 'crashed';
-      else if (state === 'over') status = 'winner';
-      else status = 'riding';
-      const who = i === mySeat ? 'you' : r.human ? 'neighbor' : 'granny';
-      r.meta.textContent = `${who} · ${status} · ${r.wins} ${r.wins === 1 ? 'win' : 'wins'}`;
-      r.li.classList.toggle('out', !r.alive && state !== 'ready');
-      r.li.classList.toggle('win', r.alive && state === 'over');
-    });
-  }
-
-  // ---------- input ----------
-  function queueTurn(d) {
-    if (state !== 'play' || mySeat < 0 || !me().alive) return;
-    send({ t: 'turn', d });
-  }
-  const KEYS = { ArrowUp: 0, w: 0, W: 0, ArrowRight: 1, d: 1, D: 1, ArrowDown: 2, s: 2, S: 2, ArrowLeft: 3, a: 3, A: 3 };
-  addEventListener('keydown', e => {
-    if (KEYS[e.key] !== undefined) { e.preventDefault(); queueTurn(KEYS[e.key]); return; }
-    if ((e.key === ' ' || e.key === 'Enter') && state !== 'play') {
-      if (e.target && e.target.tagName === 'BUTTON') return;
-      e.preventDefault(); startRound();
-    }
-  });
-  const stage = document.getElementById('stage');
-  let sw = null;
-  stage.addEventListener('pointerdown', e => { if (state === 'play') sw = { x: e.clientX, y: e.clientY }; });
-  stage.addEventListener('pointermove', e => {
-    if (!sw || state !== 'play') return;
-    const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 22) return;
-    queueTurn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
-    sw = { x: e.clientX, y: e.clientY };
-  });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => stage.addEventListener(n, () => { sw = null; }));
-  document.getElementById('pad').addEventListener('pointerdown', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    e.preventDefault(); queueTurn(Number(b.dataset.dir));
-  });
-
-  // ---------- drawing: static neighborhood ----------
-  const bg = document.createElement('canvas');
-  bg.width = W * CELL; bg.height = H * CELL;
-  const b = bg.getContext('2d');
-
-  function rr(g, x, y, w, h, r) {
-    g.beginPath();
-    g.moveTo(x + r, y);
-    g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
-    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r);
-    g.closePath();
-  }
-  function drawHouse(h) {
-    const x = h.x * CELL, y = h.y * CELL, w = h.w * CELL, hh = h.h * CELL;
-    const rot = { down: 0, left: Math.PI / 2, up: Math.PI, right: -Math.PI / 2 }[h.face];
-    const flip = h.face === 'left' || h.face === 'right';
-    const lw = flip ? hh : w, lh = flip ? w : hh;
-    b.save();
-    b.translate(x + w / 2, y + hh / 2); b.rotate(rot);
-    b.fillStyle = C.lawn; rr(b, -lw / 2 + 1, -lh / 2 + 1, lw - 2, lh - 2, 5); b.fill();
-    const m = CELL * 0.3, dw = CELL * 1.5;
-    b.fillStyle = C.drive; b.fillRect(lw * 0.2 - dw / 2, lh / 2 - m * 1.6 - 1, dw, m * 1.6 + 1 + CELL);
-    const rx = -lw / 2 + m, ry = -lh / 2 + m, rw = lw - 2 * m, rh = lh - m - m * 1.6;
-    b.fillStyle = h.tone; rr(b, rx, ry, rw, rh, 3); b.fill();
-    b.globalAlpha = 0.25; b.strokeStyle = h.hoa ? C.bg : C.ink; b.lineWidth = 2; b.beginPath();
-    if (rw >= rh) { b.moveTo(rx + 4, ry + rh / 2); b.lineTo(rx + rw - 4, ry + rh / 2); }
-    else { b.moveTo(rx + rw / 2, ry + 4); b.lineTo(rx + rw / 2, ry + rh - 4); }
-    b.stroke(); b.globalAlpha = 1;
-    b.fillStyle = C.bg; b.fillRect(rx + rw * 0.2, ry + rh * 0.2, 5, 5);
-    b.shadowColor = C.window; b.shadowBlur = 10; b.fillStyle = C.window;
-    b.beginPath(); b.arc(lw * 0.2 - dw / 2 - 5, lh / 2 - 6, 2.4, 0, Math.PI * 2); b.fill();
-    b.shadowBlur = 0;
-    if (h.hoa) {
-      b.fillStyle = C.bg; b.font = '600 13px "IBM Plex Mono", monospace';
-      b.textAlign = 'center'; b.textBaseline = 'middle';
-      b.fillText('HOA', rx + rw / 2, ry + rh / 2 + 1);
-    }
-    b.restore();
-  }
-  function drawTree(t) {
-    const cx = (t.x + 0.5) * CELL, cy = (t.y + 0.5) * CELL;
-    b.fillStyle = C.lawn; rr(b, t.x * CELL + 1, t.y * CELL + 1, CELL - 2, CELL - 2, 6); b.fill();
-    b.fillStyle = C.leaf; b.beginPath(); b.arc(cx, cy, CELL * 0.46, 0, Math.PI * 2); b.fill();
-    b.fillStyle = C.leafHi; b.beginPath(); b.arc(cx - 3, cy - 3, CELL * 0.22, 0, Math.PI * 2); b.fill();
-  }
-  function drawBush(u) {
-    const cx = (u.x + 0.5) * CELL, cy = (u.y + 0.5) * CELL;
-    b.fillStyle = C.lawn; rr(b, u.x * CELL + 1, u.y * CELL + 1, CELL - 2, CELL - 2, 6); b.fill();
-    b.fillStyle = C.leaf;
-    [[-5, 3, 7], [5, 3, 7], [0, -4, 8]].forEach(([dx, dy, rad]) => { b.beginPath(); b.arc(cx + dx, cy + dy, rad, 0, Math.PI * 2); b.fill(); });
-    b.fillStyle = C.leafHi;
-    [[-6, 1, 2.6], [4, 1, 2.6], [-1, -6, 3]].forEach(([dx, dy, rad]) => { b.beginPath(); b.arc(cx + dx, cy + dy, rad, 0, Math.PI * 2); b.fill(); });
-  }
-  function drawMail(m) {
-    const cx = (m.x + 0.5) * CELL, cy = (m.y + 0.5) * CELL;
-    b.fillStyle = C.mail; rr(b, cx - 6, cy - 4, 12, 8, 3); b.fill();
-    b.fillStyle = C.ink; b.fillRect(cx + 5, cy - 8, 2, 6);
-  }
-  function drawFence() {
-    b.fillStyle = C.fenceBase;
-    b.fillRect(0, 0, W * CELL, CELL); b.fillRect(0, (H - 1) * CELL, W * CELL, CELL);
-    b.fillRect(0, 0, CELL, H * CELL); b.fillRect((W - 1) * CELL, 0, CELL, H * CELL);
-    b.fillStyle = C.fence; b.globalAlpha = 0.8;
-    for (let px = 0; px < W * CELL; px += 6) { b.fillRect(px + 1, 4, 3, CELL - 8); b.fillRect(px + 1, (H - 1) * CELL + 4, 3, CELL - 8); }
-    for (let py = 0; py < H * CELL; py += 6) { b.fillRect(4, py + 1, CELL - 8, 3); b.fillRect((W - 1) * CELL + 4, py + 1, CELL - 8, 3); }
-    b.globalAlpha = 1;
-  }
-  function strip(x0, y0, x1, y1, color) {
-    b.fillStyle = color; b.fillRect(x0 * CELL, y0 * CELL, (x1 - x0 + 1) * CELL, (y1 - y0 + 1) * CELL);
-  }
-  function walk(x0, y0, x1, y1) {
-    strip(x0, y0, x1, y1, C.walk);
-    b.strokeStyle = C.walkLine; b.lineWidth = 1; b.beginPath();
-    if (x1 - x0 >= y1 - y0) {
-      for (let x = x0; x <= x1 + 1; x++) { b.moveTo(x * CELL + 0.5, y0 * CELL); b.lineTo(x * CELL + 0.5, (y1 + 1) * CELL); }
-    } else {
-      for (let y = y0; y <= y1 + 1; y++) { b.moveTo(x0 * CELL, y * CELL + 0.5); b.lineTo((x1 + 1) * CELL, y * CELL + 0.5); }
-    }
-    b.stroke();
-  }
-  function paintStatic() {
-    b.fillStyle = C.grass; b.fillRect(0, 0, bg.width, bg.height);
-    b.fillStyle = C.grassStripe;
-    for (let x = 0; x < W; x += 2) b.fillRect(x * CELL, 0, CELL, H * CELL);
-    strip(6, 6, 33, 9, C.road); strip(6, 16, 33, 19, C.road);
-    strip(6, 10, 9, 15, C.road); strip(30, 10, 33, 15, C.road);
-    walk(1, 5, 38, 5); walk(1, 20, 38, 20);
-    walk(5, 6, 5, 19); walk(34, 6, 34, 19);
-    walk(10, 10, 29, 10); walk(10, 15, 29, 15);
-    walk(10, 11, 10, 14); walk(29, 11, 29, 14);
-    b.save(); b.strokeStyle = C.stripe; b.lineWidth = 2; b.setLineDash([12, 10]); b.beginPath();
-    b.moveTo(10 * CELL, 8 * CELL); b.lineTo(30 * CELL, 8 * CELL);
-    b.moveTo(10 * CELL, 18 * CELL); b.lineTo(30 * CELL, 18 * CELL);
-    b.moveTo(8 * CELL, 10 * CELL); b.lineTo(8 * CELL, 16 * CELL);
-    b.moveTo(32 * CELL, 10 * CELL); b.lineTo(32 * CELL, 16 * CELL);
-    b.stroke(); b.restore();
-    houses.forEach(drawHouse); trees.forEach(drawTree); bushes.forEach(drawBush); boxes.forEach(drawMail);
-    drawFence();
-  }
-
-  // ---------- drawing: bikes, trails, effects ----------
-  const lerp = (a, c, t) => a + (c - a) * t;
-
-  function drawSuv(r, cx, cy) {
-    ctx.save();
-    ctx.translate(cx, cy); ctx.rotate(r.dir * Math.PI / 2); ctx.scale(1.3, 1.3);
-    ctx.globalAlpha = r.alive ? 1 : 0.45;
-    ctx.fillStyle = C.bg;
-    [[-8, -10], [8, -10], [-8, 10], [8, 10]].forEach(([wx, wy]) => ctx.fillRect(wx - 2, wy - 4, 4, 8));
-    ctx.shadowColor = r.color; ctx.shadowBlur = r.alive ? 14 : 0;
-    ctx.fillStyle = r.color; rr(ctx, -7.5, -16, 15, 32, 4); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#14102a';
-    rr(ctx, -5.5, -10, 11, 5, 1.5); ctx.fill();
-    rr(ctx, -5.5, 10, 11, 3.5, 1.5); ctx.fill();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'; rr(ctx, -5.5, -3.5, 11, 12.5, 2); ctx.fill();
-    ctx.strokeStyle = C.ink; ctx.lineWidth = 1; ctx.globalAlpha *= 0.7;
-    ctx.beginPath(); ctx.moveTo(-4.5, -2); ctx.lineTo(-4.5, 8); ctx.moveTo(4.5, -2); ctx.lineTo(4.5, 8); ctx.stroke();
-    ctx.globalAlpha = r.alive ? 1 : 0.45;
-    ctx.fillStyle = '#fff6c9'; ctx.fillRect(-6, -16, 3, 2); ctx.fillRect(3, -16, 3, 2);
-    ctx.fillStyle = C.mail; ctx.fillRect(-6, 14, 3, 2); ctx.fillRect(3, 14, 3, 2);
-    ctx.restore();
-  }
-
-  function drawTrails(t) {
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    riders.forEach(r => {
-      const pts = r.path;
-      if (pts.length < 2) return;
-      const moving = r.alive && state === 'play';
-      const ex = moving ? lerp(r.px, r.x, t) : r.x, ey = moving ? lerp(r.py, r.y, t) : r.y;
-      const trace = () => {
-        ctx.beginPath();
-        ctx.moveTo((pts[0].x + 0.5) * CELL, (pts[0].y + 0.5) * CELL);
-        for (let k = 1; k < pts.length; k++) {
-          if (k === pts.length - 1 && moving) ctx.lineTo((ex + 0.5) * CELL, (ey + 0.5) * CELL);
-          else ctx.lineTo((pts[k].x + 0.5) * CELL, (pts[k].y + 0.5) * CELL);
-        }
-      };
-      ctx.save();
-      ctx.strokeStyle = r.color; ctx.shadowColor = r.color; ctx.shadowBlur = 14; ctx.lineWidth = 6;
-      trace(); ctx.stroke();
-      ctx.restore();
-      ctx.save();
-      ctx.strokeStyle = C.ink; ctx.globalAlpha = 0.8; ctx.lineWidth = 2;
-      trace(); ctx.stroke();
-      ctx.restore();
-    });
-  }
-
-  function draw(now) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(bg, 0, 0);
-    const t = state === 'play' ? Math.min(acc / TICK, 1) : 1;
-    drawTrails(t);
-    riders.forEach(r => {
-      const moving = r.alive && state === 'play';
-      const x = moving ? lerp(r.px, r.x, t) : r.x, y = moving ? lerp(r.py, r.y, t) : r.y;
-      drawSuv(r, (x + 0.5) * CELL, (y + 0.5) * CELL);
-    });
-    ctx.save();
-    ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = C.bg;
-    riders.forEach(r => {
-      if (!r.alive) return;
-      const moving = state === 'play';
-      const t2 = moving ? Math.min(acc / TICK, 1) : 1;
-      const x = moving ? lerp(r.px, r.x, t2) : r.x, y = moving ? lerp(r.py, r.y, t2) : r.y;
-      const tx = (x + 0.5) * CELL, ty = (y + 0.5) * CELL - 28;
-      ctx.strokeText(r.name, tx, ty); ctx.fillStyle = r.color; ctx.fillText(r.name, tx, ty);
-    });
-    ctx.restore();
-    riders.forEach(r => {
-      if (!r.boom) return;
-      const age = now - r.boom.t0;
-      if (age > 700 || age < 0) return;
-      const k = age / 700;
-      ctx.save();
-      ctx.globalAlpha = 1 - k; ctx.strokeStyle = r.color; ctx.shadowColor = r.color; ctx.shadowBlur = 12;
-      ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(r.boom.x, r.boom.y, 6 + k * 34, 0, Math.PI * 2); ctx.stroke();
-      ctx.lineWidth = 2;
-      for (let i = 0; i < 8; i++) {
-        const a = i * Math.PI / 4 + r.seed, r0 = 4 + k * 14, r1 = 10 + k * 40;
-        ctx.beginPath();
-        ctx.moveTo(r.boom.x + Math.cos(a) * r0, r.boom.y + Math.sin(a) * r0);
-        ctx.lineTo(r.boom.x + Math.cos(a) * r1, r.boom.y + Math.sin(a) * r1);
-        ctx.stroke();
-      }
-      ctx.restore();
-    });
-  }
-
-  function updateValues() {
-    riders.forEach(r => {
-      const txt = '$' + (Math.floor(r.aliveMs / 50) * 10000).toLocaleString('en-US');
-      if (txt !== r.shownVal) { r.val.textContent = txt; r.shownVal = txt; }
-    });
-  }
-
-  function frame(now) {
-    acc = state === 'play' ? Math.min(now - lastTickAt, TICK) : TICK;
-    updateValues();
-    draw(now);
-    requestAnimationFrame(frame);
-  }
-
-  paintStatic();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(paintStatic);
-  renderChips();
-  showOverlay('Ready to ride', 'Knocking on the neighborhood door...', 'Start');
-  connect();
-  requestAnimationFrame(frame);
-})();
-</script>
+<script type="module" src="main.js"></script>
 
 </body></html>
