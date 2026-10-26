@@ -120,26 +120,36 @@ let overlayShownAt = 0;
 function showOverlay(t, p, label, board) {
   ovTitle.textContent = t; ovText.textContent = p; go.textContent = label;
   overlay.classList.toggle('win', !!board); ovBoard.hidden = !board;
-  if (board) fillBoard();
+  if (board) { fillBoard(); ovBoard.scrollTop = 0; }
   overlay.hidden = false; overlayShownAt = performance.now();
   go.focus({ preventScroll: true });
 }
 const standings = () => riders.slice().sort((a, b) => (G.riderValue(b) - G.riderValue(a)) || (a.id - b.id));
 const money = r => '$' + G.riderValue(r).toLocaleString('en-US');
+// the rows are made once and only their text changes, every 2 s while the window is up
+const BOARD_EVERY = 2000;
+let boardRows = null, boardTimer = 0;
 function fillBoard() {
-  ovBoard.replaceChildren(...standings().map((r, i) => {
+  if (!boardRows) boardRows = riders.map(() => {
     const li = document.createElement('li');
-    if (r === karen() && me >= 0) li.className = 'me'; else if (!r.alive) li.className = 'out';
-    [['lbr', String(i + 1)], ['lbn', names[r.id]], ['lbv', money(r)]].forEach(([c, t]) => {
-      const sp = document.createElement('span'); sp.className = c; sp.textContent = t; li.appendChild(sp);
-    });
-    return li;
-  }));
-  ovBoard.scrollTop = 0;
+    const cells = ['lbr', 'lbn', 'lbv'].map(c => { const sp = document.createElement('span'); sp.className = c; li.appendChild(sp); return sp; });
+    return { li, cells };
+  });
+  standings().forEach((r, i) => {
+    const row = boardRows[i], cls = r === karen() && me >= 0 ? 'me' : !r.alive ? 'out' : '';
+    if (row.li.className !== cls) row.li.className = cls;
+    [String(i + 1), names[r.id], money(r)].forEach((t, k) => { if (row.cells[k].textContent !== t) row.cells[k].textContent = t; });
+  });
+  if (ovBoard.children.length !== boardRows.length) ovBoard.replaceChildren(...boardRows.map(r => r.li));
+  clearTimeout(boardTimer);
+  boardTimer = setTimeout(() => { if (!overlay.hidden && !ovBoard.hidden) fillBoard(); }, BOARD_EVERY);
 }
-// the HOA Newsletter: the top 5, and your own row under them when you are further down (worked out when names change)
+// the HOA Newsletter: the top 5, and your own row under them when you are further down (worked out every 2 s, and when names change)
+const NEWS_EVERY = 2000;
+let newsAt = 0;
 function newsRows() {
-  if (news) return news;
+  if (news && performance.now() - newsAt < NEWS_EVERY) return news;
+  newsAt = performance.now();
   const all = standings(), k = karen(), at = me >= 0 ? all.indexOf(k) : -1;
   const rows = all.slice(0, 5).map((r, i) => [i + 1, r]);
   if (at >= 5) rows.push([at + 1, k]);
