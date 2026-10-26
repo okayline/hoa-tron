@@ -159,7 +159,9 @@ export function addJoin(n, seat) { let a = joins.get(n); if (!a) joins.set(n, a 
 // ---------- undo log: one record per step ----------
 const hist = [];
 let log = null;
-function setTrail(i, o, s) { if (log) log.push(0, i, trail[i], stepAt[i]); trail[i] = o; stepAt[i] = s; }
+function setTrail(i, o, s) { if (log) log.push(0, i, trail[i], stepAt[i]); trail[i] = o; stepAt[i] = s; touched.push(i); }
+// trail cells changed since the minimap last looked (S.full: redraw it all)
+export const touched = [];
 function setCoffee(i, v) { if (log) log.push(1, i, coffee[i], 0); coffee[i] = v; }
 export const oldest = () => hist.length ? hist[0].n : S.n + 1; // the earliest step that can still be played again
 
@@ -171,7 +173,7 @@ export function rewind(n) {
     const h = hist.pop();
     for (let k = h.log.length - 4; k >= 0; k -= 4) {
       const i = h.log[k + 1];
-      if (h.log[k] === 0) { trail[i] = h.log[k + 2]; stepAt[i] = h.log[k + 3]; } else coffee[i] = h.log[k + 2];
+      if (h.log[k] === 0) { trail[i] = h.log[k + 2]; stepAt[i] = h.log[k + 3]; touched.push(i); } else coffee[i] = h.log[k + 2];
     }
     h.rs.forEach((o, i) => { const r = riders[i]; RF.forEach(f => r[f] = o[f]); });
     rs = h.rand; S.n = h.n - 1;
@@ -216,7 +218,7 @@ function pickStarts() {
 
 // a fresh round from its seed (events are kept: they belong to the round)
 export function reset(seed) {
-  S.seed = seed; S.n = 0; rs = seed | 0; hist.length = 0; log = null;
+  S.seed = seed; S.n = 0; S.full = true; touched.length = 0; rs = seed | 0; hist.length = 0; log = null;
   trail.fill(-1); coffee.fill(0);
   const starts = pickStarts();
   riders.forEach((r, i) => {

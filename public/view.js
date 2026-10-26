@@ -1,5 +1,5 @@
 // HOA Wars drawing: the town, the SUVs and trails, the coffees, the HOA Newsletter, the minimap and the stats row.
-import { TW, TH, TX, TY, W, H, N, TILES, solid, trail, stepAt, coffee, riders } from './sim.js';
+import { TW, TH, TX, TY, W, H, N, TILES, S, touched, solid, trail, stepAt, coffee, riders } from './sim.js';
 
 export const CELL = 24;
 const cs = getComputedStyle(document.documentElement);
@@ -295,7 +295,6 @@ function trails(ctx, x0, y0, x1, y1, colors) {
 const mini = document.createElement('canvas'); mini.width = W; mini.height = H;
 const mg = mini.getContext('2d');
 let miniBase = null;
-const miniPx = new Uint8Array(W * H); // what the minimap shows: rider id + 1, 0 for nothing
 function miniSync(colors) {
   if (!miniBase) {
     miniBase = document.createElement('canvas'); miniBase.width = W; miniBase.height = H;
@@ -305,14 +304,18 @@ function miniSync(colors) {
     for (let i = 0; i < W * H; i++) if (solid[i]) g.fillRect(i % W, Math.floor(i / W), 1, 1);
     mg.drawImage(miniBase, 0, 0);
   }
-  // only the cells that changed are redrawn (a rewind can take some away)
-  for (let i = 0; i < W * H; i++) {
-    const v = trail[i] + 1;
-    if (v === miniPx[i]) continue;
-    miniPx[i] = v;
-    const x = i % W, y = (i / W) | 0;
-    if (v) { mg.fillStyle = colors[v - 1]; mg.fillRect(x, y, 1, 1); } else { mg.clearRect(x, y, 1, 1); mg.drawImage(miniBase, x, y, 1, 1, x, y, 1, 1); }
+  // only the cells whose trail changed are redrawn (a rewind can take some away)
+  if (S.full) {
+    S.full = false; touched.length = 0;
+    mg.drawImage(miniBase, 0, 0);
+    for (let i = 0; i < W * H; i++) if (trail[i] >= 0) { mg.fillStyle = colors[trail[i]]; mg.fillRect(i % W, (i / W) | 0, 1, 1); }
+    return;
   }
+  for (const i of touched) {
+    const x = i % W, y = (i / W) | 0, o = trail[i];
+    if (o >= 0) { mg.fillStyle = colors[o]; mg.fillRect(x, y, 1, 1); } else mg.drawImage(miniBase, x, y, 1, 1, x, y, 1, 1);
+  }
+  touched.length = 0;
 }
 
 function newsletter(ctx, rows, small) {
