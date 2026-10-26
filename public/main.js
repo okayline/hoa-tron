@@ -14,9 +14,6 @@ const CELL = 24;
 let VW = 40, VH = 26; // cells on screen: wide on a computer, tall and closer in on a phone held upright
 function fitView() { VW = upright.matches ? 20 : 40; VH = upright.matches ? 36 : 26; canvas.width = VW * CELL; canvas.height = VH * CELL; }
 fitView(); upright.addEventListener('change', fitView);
-let chipPad = 0; // upright phone: the rider boxes cover the bottom of the game screen, so the minimap sits above them
-function fitChips() { const c = document.getElementById('chips'); chipPad = upright.matches && canvas.clientWidth ? (c.offsetHeight + 10) * canvas.width / canvas.clientWidth : 0; }
-new ResizeObserver(fitChips).observe(document.getElementById('chips')); new ResizeObserver(fitChips).observe(canvas); upright.addEventListener('change', fitChips);
 
 // ---------- round ----------
 let state = 'ready'; // ready | play | over
@@ -246,7 +243,6 @@ function makeChip(color, name) {
   return { li, meta: li.querySelector('.meta'), val: li.querySelector('.val'), key: '', shown: '' };
 }
 const kChip = makeChip(tok('--karen'), "Karen's Property Value");
-const gChip = makeChip(tok('--gladys'), 'Others still riding');
 function renderChips() {
   const k = karen();
   const status = state === 'ready' ? 'on the line' : !k.alive ? 'crashed' : state === 'over' ? 'winner' : 'riding';
@@ -258,10 +254,6 @@ function renderChips() {
   }
   kChip.li.classList.toggle('out', !k.alive && state !== 'ready');
   kChip.li.classList.toggle('win', k.alive && state === 'over');
-  const left = othersAlive();
-  const gv = `${left} / ${N - 1}`, gm = state === 'ready' ? 'on the line' : `${N - 1 - left} crashed`;
-  if (gv !== gChip.key) { gChip.key = gv; gChip.val.textContent = gv; }
-  if (gm !== gChip.shown) { gChip.shown = gm; gChip.meta.textContent = gm; }
   // with no granny of your own yet, you see the number you ended on; it does not go up
   const txt = '$' + (me < 0 ? heldVal : G.riderValue(k)).toLocaleString('en-US');
   if (txt !== kChip.shown) { kChip.shown = txt; kChip.val.textContent = txt; }
@@ -299,7 +291,9 @@ stage.addEventListener('pointerdown', e => {
 });
 
 // ---------- every frame ----------
+const play = document.querySelector('.play');
 function frame() {
+  play.classList.toggle('playing', state === 'play' && me >= 0);
   const running = state === 'play' || (state === 'over' && liveOver);
   if (running) {
     catchUp();
@@ -315,7 +309,7 @@ function frame() {
   renderChips();
   const secs = Math.floor(S.n * TICK / 1000);
   draw(ctx, {
-    vw: VW, vh: VH, small: upright.matches, chipPad, me: karen(), names, colors, news: newsRows(),
+    vw: VW, vh: VH, small: upright.matches, me: karen(), names, colors, news: newsRows(),
     moving: running, t: Math.max(0, Math.min(1, (serverNow() - (startAt + S.n * TICK)) / TICK)),
     age: n => serverNow() - (startAt + n * TICK),
     items: [['clock', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`], ['rider', String(riders.filter(r => r.alive).length)], ['cup', String(karen().coffee)]]

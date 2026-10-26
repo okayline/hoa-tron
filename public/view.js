@@ -366,7 +366,7 @@ function stats(ctx, right, bottom, items, widths) {
 }
 
 // ---------- one frame ----------
-// v: { vw, vh, small, chipPad, t (0..1 between the last step and the next), moving, me (rider followed), names, colors,
+// v: { vw, vh, small, t (0..1 between the last step and the next), moving, me (rider followed), names, colors,
 //      news (newsletter rows), items (stats row), age (n => ms since step n) }
 const lerp = (a, c, t) => a + (c - a) * t;
 export function draw(ctx, v) {
@@ -432,12 +432,12 @@ export function draw(ctx, v) {
 
   newsletter(ctx, v.news, v.small);
 
-  // minimap and stats row, bottom right (smaller on an upright phone, above the rider boxes)
+  // minimap and stats row, bottom right (smaller on an upright phone, beside Karen's box at the bottom)
   miniSync(v.colors);
   const widths = statWidths(ctx), total = widths.reduce((a, c) => a + c, 0) + 8;
-  const k = v.small ? 0.7 : 1, cx = cw - 10, cy = ch - 10 - v.chipPad;
+  const k = v.small ? 0.7 : 1, cx = cw - 10, cy = ch - 10;
   ctx.save(); ctx.translate(cx, cy); ctx.scale(k, k); ctx.translate(-cx, -cy);
-  const MS = total / W, mw = W * MS, mh = H * MS, mx = cw - mw - 10, my = ch - mh - 10 - v.chipPad;
+  const MS = total / W, mw = W * MS, mh = H * MS, mx = cw - mw - 10, my = ch - mh - 10;
   ctx.save();
   ctx.globalAlpha = 0.85; ctx.imageSmoothingEnabled = false;
   ctx.drawImage(mini, mx, my, mw, mh);
