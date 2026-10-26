@@ -293,7 +293,7 @@ stage.addEventListener('pointerdown', e => {
 // ---------- every frame ----------
 const play = document.querySelector('.play');
 function frame() {
-  play.classList.toggle('playing', state === 'play' && me >= 0);
+  play.classList.toggle('playing', state === 'play' && me >= 0 && karen().alive);
   const running = state === 'play' || (state === 'over' && liveOver);
   if (running) {
     catchUp();

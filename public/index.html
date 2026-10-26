@@ -91,6 +91,8 @@ h1 {
 canvas { display: block; width: 100%; height: 100%; }
 /* a phone held upright: a tall game screen that shows fewer cells, so everything is bigger (the view size is set in fitView) */
 @media (max-width: 720px) and (orientation: portrait) {
+  /* the page itself does not scroll, bounce or zoom on a phone */
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; }
   .stage { aspect-ratio: 20 / 36; }
   /* the rider boxes sit on the bottom of the game screen, see-through */
   .play { position: relative; }
@@ -153,7 +155,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 @media (max-width: 720px) and (orientation: portrait) {
   .play.playing .edge {
     display: flex; align-items: center; justify-content: center; pointer-events: none;
-    position: absolute; z-index: 3; bottom: 160px; width: 84px; height: 84px; border-radius: 50%; opacity: 0.25;
+    position: absolute; z-index: 3; bottom: 160px; width: 84px; height: 84px; border-radius: 50%;
     font: 700 34px var(--font-body); color: #fff; text-shadow: 0 1px 4px #000;
     background: rgba(23, 20, 58, 0.35); border: 1px solid rgba(255, 255, 255, 0.18);
   }
@@ -186,7 +188,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   <ul class="chips" id="chips" aria-label="Riders"></ul>
   </div>
 
-  <p class="foot"><span></span><span>v3.6</span></p>
+  <p class="foot"><span></span><span>v3.7</span></p>
 </div>
 
 <script type="module" src="main.js"></script>
