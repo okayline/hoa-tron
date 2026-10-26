@@ -2,6 +2,9 @@
 
 Newest first. Times are Hawaii time (HST).
 
+## v3.9 · Mon Oct 26, 2026
+- Removed: the dark outline around the arrows in the turn buttons.
+
 ## v3.8 · Mon Oct 26, 2026
 - The page scrolls on phones again (the v3.7 scroll lock is gone).
 
