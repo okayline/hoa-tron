@@ -156,13 +156,13 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     <button type="button" class="r" data-dir="1" aria-label="Steer right">→</button>
   </div>
 
-  <p class="foot"><span>Steer with arrow keys or WASD, or swipe the board. Space starts a round.</span><span>v1.1</span></p>
+  <p class="foot"><span>Steer with arrow keys or WASD, or swipe the board. Space starts a round.</span><span>v2.0</span></p>
 </div>
 
-<script>
+<script type="module">
+import { W, H, TICK, RIDERS, buildMap } from './game.js';
 (() => {
-  const W = 40, H = 26, CELL = 24, TICK = 95;
-  const DIRS = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }]; // 0 up, 1 right, 2 down, 3 left
+  const CELL = 24;
   const cs = getComputedStyle(document.documentElement);
   const tok = n => cs.getPropertyValue(n).trim();
   const C = {
@@ -178,166 +178,68 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   const ctx = canvas.getContext('2d');
   canvas.width = W * CELL; canvas.height = H * CELL;
 
-  // ---------- map ----------
-  const solid = new Uint8Array(W * H);
-  const kind = new Array(W * H).fill('');
-  const trail = new Int8Array(W * H).fill(-1);
-  const houses = [], trees = [], boxes = [], bushes = [];
+  const { houses, trees, boxes, bushes } = buildMap();
+  houses.forEach(h => { h.tone = h.hoa ? C.hoa : C.roofs[h.tone]; });
 
-  function block(x, y, w, h, k) {
-    for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) { solid[j * W + i] = 1; kind[j * W + i] = k; }
-  }
-  function addHouse(x, y, w, h, tone, face, hoa) {
-    block(x, y, w, h, hoa ? 'hoa' : 'house');
-    houses.push({ x, y, w, h, tone, face, hoa: !!hoa });
-  }
-  block(0, 0, W, 1, 'fence'); block(0, H - 1, W, 1, 'fence');
-  block(0, 0, 1, H, 'fence'); block(W - 1, 0, 1, H, 'fence');
-
-  [3, 12, 22, 31].forEach((x, i) => {
-    addHouse(x, 2, 6, 3, C.roofs[i % 4], 'down');
-    addHouse(x, 21, 6, 3, C.roofs[(i + 2) % 4], 'up');
-  });
-  addHouse(2, 9, 3, 6, C.roofs[1], 'right');
-  addHouse(35, 9, 3, 6, C.roofs[3], 'left');
-  addHouse(15, 11, 10, 4, C.hoa, 'down', true);
-
-  [[10, 8], [29, 8], [10, 17], [29, 17], [20, 8], [20, 17], [10, 12], [30, 12]].forEach(([x, y]) => {
-    block(x, y, 1, 1, 'tree'); trees.push({ x, y });
-  });
-  [[6, 5], [15, 5], [25, 5], [34, 5], [6, 20], [15, 20], [25, 20], [34, 20]].forEach(([x, y]) => {
-    block(x, y, 1, 1, 'mail'); boxes.push({ x, y });
-  });
-  [[4, 5], [9, 5], [12, 5], [18, 5], [22, 5], [28, 5], [31, 5], [37, 5],
-   [4, 20], [9, 20], [12, 20], [18, 20], [22, 20], [28, 20], [31, 20], [37, 20],
-   [14, 11], [14, 14], [25, 11], [25, 14], [8, 10], [8, 15], [32, 10], [32, 15]].forEach(([x, y]) => {
-    block(x, y, 1, 1, 'bush'); bushes.push({ x, y });
-  });
-
-  // ---------- riders ----------
-  const riders = [
-    { name: 'Karen', col: '--karen', kind: 'karen', hair: '#f5d56b', sx: 8, sy: 7, sdir: 1, human: true },
-    { name: 'Gladys', col: '--gladys', kind: 'granny', hair: '#f1eefc', sx: 31, sy: 18, sdir: 3 },
-    { name: 'Doris', col: '--doris', kind: 'granny', hair: '#c7b2ff', sx: 33, sy: 7, sdir: 2 },
-    { name: 'Peggy', col: '--peggy', kind: 'granny', hair: '#e9e9ee', sx: 6, sy: 18, sdir: 0 }
-  ].map((r, i) => ({
-    ...r, id: i, color: tok(r.col), wins: 0, aliveMs: 0, shownVal: '', alive: true, path: [], turnQ: [],
+  // The server decides everything; the page draws what it's told and sends turns.
+  const riders = RIDERS.map((r, i) => ({
+    ...r, id: i, color: tok(r.col), wins: 0, aliveMs: 0, shownVal: '', alive: true, human: false, path: [],
     x: r.sx, y: r.sy, px: r.sx, py: r.sy, dir: r.sdir, boom: null, note: '', seed: Math.random() * 6
   }));
-  const karen = riders[0];
 
   let state = 'ready'; // ready | play | over
-  let acc = 0, lastT = performance.now(), overlayTimer = 0, overlayShownAt = 0;
+  let mySeat = -1, acc = 0, lastTickAt = performance.now(), overlayShownAt = 0, title = '', text = '';
+  let room = location.hash.slice(1).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!room) { room = Math.random().toString(36).slice(2, 7).toUpperCase(); history.replaceState(null, '', '#' + room); }
 
-  function blocked(x, y) {
-    return x < 0 || y < 0 || x >= W || y >= H || solid[y * W + x] === 1 || trail[y * W + x] >= 0;
+  // ---------- network ----------
+  let ws = null, retry = 0;
+  function connect() {
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?room=${room}`);
+    ws.onopen = () => { retry = 0; };
+    ws.onmessage = e => onMessage(JSON.parse(e.data));
+    ws.onclose = () => { ws = null; showOverlay('Reconnecting', 'Lost the connection to the neighborhood. Trying again.', 'Start'); setTimeout(connect, Math.min(4000, 500 * ++retry)); };
   }
-  function freeRun(x, y, d, max) {
-    let n = 0;
-    for (let k = 1; k <= max; k++) {
-      if (blocked(x + DIRS[d].x * k, y + DIRS[d].y * k)) break;
-      n++;
-    }
-    return n;
-  }
-  function whatIs(x, y, r) {
-    if (x < 0 || y < 0 || x >= W || y >= H) return 'the fence';
-    const k = kind[y * W + x];
-    if (k) return { fence: 'the fence', house: "a neighbor's house", hoa: 'the HOA clubhouse', tree: 'a tree', mail: 'a mailbox', bush: 'a bush' }[k];
-    const o = trail[y * W + x];
-    if (o >= 0) return o === r.id ? `${r.name}'s own trail` : `${riders[o].name}'s trail`;
-    return 'something';
-  }
+  const send = m => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
 
-  function reset() {
-    trail.fill(-1);
-    riders.forEach(r => {
-      r.x = r.px = r.sx; r.y = r.py = r.sy; r.dir = r.sdir;
-      r.alive = true; r.boom = null; r.note = ''; r.turnQ.length = 0; r.aliveMs = 0;
-      r.path = [{ x: r.x, y: r.y }];
-      trail[r.y * W + r.x] = r.id;
-    });
-  }
-
-  // ---------- grandma driving ----------
-  function ai(r) {
-    const ahead = freeRun(r.x, r.y, r.dir, 8);
-    const l = (r.dir + 3) % 4, rt = (r.dir + 1) % 4;
-    const fl = freeRun(r.x, r.y, l, 12), fr = freeRun(r.x, r.y, rt, 12);
-    if (ahead >= 3) {
-      if (Math.random() < 0.03) {
-        const best = fl > fr ? { d: l, s: fl } : { d: rt, s: fr };
-        if (best.s >= 5) r.dir = best.d;
-      }
+  function onMessage(m) {
+    const now = performance.now();
+    if (m.t === 'hello') { mySeat = m.seat; return; }
+    if (m.t === 'tick') {
+      m.p.forEach(([x, y, dir, alive], i) => {
+        const r = riders[i]; if (!r.alive) return;
+        r.px = r.x; r.py = r.y; r.dir = dir;
+        if (alive) { r.x = x; r.y = y; r.path.push({ x, y }); r.aliveMs += TICK; }
+        else { r.alive = false; r.px = r.x; r.py = r.y; r.boom = { x: (x + DIRS[dir].x + 0.5) * CELL, y: (y + DIRS[dir].y + 0.5) * CELL, t0: now }; }
+      });
+      lastTickAt = now;
       return;
     }
-    const opts = [{ d: r.dir, s: ahead + Math.random() }, { d: l, s: fl + Math.random() }, { d: rt, s: fr + Math.random() }];
-    opts.sort((a, b) => b.s - a.s);
-    r.dir = opts[0].d;
-  }
-
-  // ---------- one tick ----------
-  function step() {
-    for (const r of riders) {
-      if (!r.alive) continue;
-      if (r.human) { const d = r.turnQ.shift(); if (d !== undefined) r.dir = d; }
-      else ai(r);
+    if (m.t === 'state') {
+      const was = state;
+      state = m.phase; title = m.title; text = m.text;
+      m.riders.forEach((s, i) => {
+        const r = riders[i];
+        r.wins = s.wins; r.note = s.note; r.human = m.seats[i];
+        if (m.paths) {
+          r.path = m.paths[i].map(([x, y]) => ({ x, y }));
+          r.x = r.px = s.x; r.y = r.py = s.y; r.dir = s.dir; r.alive = s.alive; r.boom = null;
+          if (state === 'play' && was !== 'play') r.aliveMs = 0;
+        }
+      });
+      renderChips();
+      if (state === 'play') { overlay.hidden = true; lastTickAt = now; }
+      else if (state === 'over') { if (was === 'play') setTimeout(() => state === 'over' && showOverlay(title, overNote(), 'Ride again'), 800); else showOverlay(title, overNote(), 'Ride again'); }
+      else showOverlay('Ready to ride', readyText(), 'Start');
     }
-    const targets = riders.map(r => r.alive ? { x: r.x + DIRS[r.dir].x, y: r.y + DIRS[r.dir].y } : null);
-    const dead = new Set(), reason = {};
-    riders.forEach((r, i) => { const t = targets[i]; if (t && blocked(t.x, t.y)) dead.add(i); });
-    for (let i = 0; i < riders.length; i++) for (let j = i + 1; j < riders.length; j++) {
-      const a = targets[i], b = targets[j];
-      if (a && b && a.x === b.x && a.y === b.y) {
-        dead.add(i); dead.add(j);
-        reason[i] = `a head-on with ${riders[j].name}`; reason[j] = `a head-on with ${riders[i].name}`;
-      }
-    }
-    const now = performance.now();
-    riders.forEach((r, i) => {
-      const t = targets[i]; if (!t) return;
-      r.px = r.x; r.py = r.y;
-      if (dead.has(i)) {
-        r.alive = false;
-        r.boom = { x: (t.x + 0.5) * CELL, y: (t.y + 0.5) * CELL, t0: now };
-        r.note = `${r.name} crashed into ${reason[i] || whatIs(t.x, t.y, r)}.`;
-      } else {
-        r.x = t.x; r.y = t.y; trail[r.y * W + r.x] = r.id; r.path.push({ x: r.x, y: r.y });
-      }
-    });
-    if (dead.size) renderChips();
-    const othersAlive = riders.filter(r => !r.human && r.alive).length;
-    if (!karen.alive || othersAlive === 0) finish();
   }
-
-  const pick = a => a[Math.floor(Math.random() * a.length)];
-  function finish() {
-    state = 'over';
-    const othersAlive = riders.filter(r => !r.human && r.alive).length;
-    let title, text;
-    if (karen.alive) {
-      karen.wins++;
-      title = 'Karen wins';
-      text = pick([
-        'The board has been notified. Everyone else is in violation.',
-        'Karen takes the cul-de-sac and the last word.',
-        'Nobody left on the street. Quiet at last.'
-      ]);
-    } else if (othersAlive === 0) {
-      title = 'Nobody wins';
-      text = 'Everyone crashed at once. The board will be hearing about this.';
-    } else {
-      title = 'Karen crashed';
-      text = karen.note + ' ' + pick([
-        'Karen would like to speak to whoever is in charge.',
-        'This is going in the next HOA newsletter.',
-        'A formal complaint has been filed about the placement of that.'
-      ]);
-    }
-    renderChips();
-    clearTimeout(overlayTimer);
-    overlayTimer = setTimeout(() => showOverlay(title, text, 'Ride again'), 800);
+  const DIRS = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
+  const me = () => riders[mySeat];
+  function readyText() {
+    const who = mySeat >= 0 ? `You're ${me().name}.` : 'The street is full, so you are watching.';
+    return `${who} Grannies drive any empty SUV. Don't touch a trail, a house, a mailbox or the fence. Invite neighbors: ${location.href}`;
   }
+  function overNote() { return (mySeat >= 0 && !me().alive && me().note ? me().note + ' ' : '') + text; }
 
   // ---------- overlay + chips ----------
   const overlay = document.getElementById('overlay');
@@ -349,12 +251,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     overlay.hidden = false; overlayShownAt = performance.now();
     go.focus({ preventScroll: true });
   }
-  function startRound() {
-    clearTimeout(overlayTimer);
-    reset(); acc = 0; state = 'play';
-    overlay.hidden = true;
-    renderChips();
-  }
+  function startRound() { if (state !== 'play' && mySeat >= 0) send({ t: 'start' }); }
   go.addEventListener('click', startRound);
   document.addEventListener('click', e => {
     if (state !== 'over' || overlay.hidden) return;
@@ -374,24 +271,23 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     chipsEl.appendChild(li);
   });
   function renderChips() {
-    riders.forEach(r => {
+    riders.forEach((r, i) => {
       let status;
       if (state === 'ready') status = 'on the line';
       else if (!r.alive) status = 'crashed';
-      else if (state === 'over') status = r.human ? 'winner' : 'still riding';
+      else if (state === 'over') status = 'winner';
       else status = 'riding';
-      r.meta.textContent = r.human ? `${status} · ${r.wins} ${r.wins === 1 ? 'win' : 'wins'}` : status;
+      const who = i === mySeat ? 'you' : r.human ? 'neighbor' : 'granny';
+      r.meta.textContent = `${who} · ${status} · ${r.wins} ${r.wins === 1 ? 'win' : 'wins'}`;
       r.li.classList.toggle('out', !r.alive && state !== 'ready');
-      r.li.classList.toggle('win', r.human && r.alive && state === 'over');
+      r.li.classList.toggle('win', r.alive && state === 'over');
     });
   }
 
   // ---------- input ----------
   function queueTurn(d) {
-    if (state !== 'play' || !karen.alive) return;
-    const last = karen.turnQ.length ? karen.turnQ[karen.turnQ.length - 1] : karen.dir;
-    if (d === last || d === (last + 2) % 4) return;
-    if (karen.turnQ.length < 2) karen.turnQ.push(d);
+    if (state !== 'play' || mySeat < 0 || !me().alive) return;
+    send({ t: 'turn', d });
   }
   const KEYS = { ArrowUp: 0, w: 0, W: 0, ArrowRight: 1, d: 1, D: 1, ArrowDown: 2, s: 2, S: 2, ArrowLeft: 3, a: 3, A: 3 };
   addEventListener('keydown', e => {
@@ -618,12 +514,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   }
 
   function frame(now) {
-    const dt = Math.min(now - lastT, 100); lastT = now;
-    if (state === 'play') {
-      acc += dt;
-      riders.forEach(r => { if (r.alive) r.aliveMs += dt; });
-      while (acc >= TICK && state === 'play') { acc -= TICK; step(); }
-    }
+    acc = state === 'play' ? Math.min(now - lastTickAt, TICK) : TICK;
     updateValues();
     draw(now);
     requestAnimationFrame(frame);
@@ -631,7 +522,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   paintStatic();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(paintStatic);
-  reset(); renderChips();
+  renderChips();
+  showOverlay('Ready to ride', 'Knocking on the neighborhood door...', 'Start');
+  connect();
   requestAnimationFrame(frame);
 })();
 </script>
