@@ -2,6 +2,9 @@
 
 Newest first. Times are Hawaii time (HST).
 
+## v3.11 · Sat Oct 31, 2026
+- A tab icon: a pastel pixel-art favicon (88 over 31 on a big X, in this game's colours), so the browser tab and home-screen bookmark show the game instead of a blank default. Removed: nothing (the page had no icon before).
+
 ## v3.10 · Mon Oct 26, 2026
 - The turn buttons stay on screen after you crash (under the round-over window).
 - Removed: the buttons hiding when you crash.
